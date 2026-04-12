@@ -7,12 +7,28 @@ const LS_PREFIX = "cg_";
 
 const machines = {
   large: [
+    { name: "Huge Long Drill", cost: 39.6e6, costLabel: "£39.6M", base: 220 },
+    { name: "Mega Plasma Drill", cost: 96.25e6, costLabel: "£96.3M", base: 275 },
+    { name: "Multi Drill", cost: 280e6, costLabel: "£280M", base: 350 },
+    { name: "Lava Drill", cost: 900e6, costLabel: "£900M", base: 600 },
+    { name: "Ice Plasma Drill", cost: 2.4e9, costLabel: "£2.4B", base: 800 },
     { name: "Crystal Drill", cost: 9e9, costLabel: "£9B", base: 1500 },
     { name: "Diamond Drill", cost: 27.5e9, costLabel: "£27.5B", base: 2750 },
     { name: "Ruby Drill", cost: 85.5e9, costLabel: "£85.5B", base: 4500 },
   ],
   small: [
-    { name: "Plasma", base: 50, size: "1×1", tiles: 1 },
+    { name: "Basic Drill", base: 1, size: "1×1", tiles: 1 },
+    { name: "Strong Drill", base: 3, size: "1×1", tiles: 1 },
+    { name: "Enhanced Drill", base: 4, size: "1×1", tiles: 1 },
+    { name: "Speed Drill", base: 6, size: "1×1", tiles: 1 },
+    { name: "Reinforced Drill", base: 8, size: "1×1", tiles: 1 },
+    { name: "Industrial Drill", base: 10, size: "1×1", tiles: 1 },
+    { name: "Double Industrial", base: 12, size: "2×1", tiles: 2 },
+    { name: "Turbo Drill", base: 16, size: "1×1", tiles: 1 },
+    { name: "Mega Drill", base: 20, size: "1×1", tiles: 1 },
+    { name: "Mega Emerald Drill", base: 25, size: "1×1", tiles: 1 },
+    { name: "Hell Drill", base: 35, size: "1×1", tiles: 1 },
+    { name: "Plasma Drill", base: 50, size: "1×1", tiles: 1 },
     { name: "Mini Ruby", base: 67, size: "1×1", tiles: 1 },
     { name: "Quantum", base: 175, size: "2×1", tiles: 2 },
   ],
@@ -384,6 +400,11 @@ export default function App() {
   const [compTo, setCompTo] = useSaved("c2", "1");
   const [compPlot, setCompPlot] = useSaved("cP", 2);
   const [inventory, setInventory] = useSaved<Record<string, { large: Record<string, number>; small: Record<string, number> }>>("inv", makeEmptyInventory());
+  const [visibleMachines, setVisibleMachines] = useSaved<{ large: Record<string, boolean>; small: Record<string, boolean> }>("visMach", {
+    large: Object.fromEntries(machines.large.map(m => [m.name, false])),
+    small: Object.fromEntries(machines.small.map(m => [m.name, false])),
+  });
+  const [showManage, setShowManage] = useState(false);
   const [customTargets, setCustomTargets] = useSaved<{ id: string; n: string; c: number }[]>("customTgts", []);
   const [newTargetName, setNewTargetName] = useState("");
   const [newTargetCost, setNewTargetCost] = useState("");
@@ -1163,207 +1184,64 @@ export default function App() {
   );
 
   // ── Inventory Tab ──
+  const toggleMachine = (type: "large" | "small", name: string) => {
+    setVisibleMachines((prev) => ({
+      ...prev,
+      [type]: { ...prev[type], [name]: !prev[type][name] },
+    }));
+  };
+
+  const visLarge = machines.large.filter((m) => visibleMachines.large?.[m.name]);
+  const visSmall = machines.small.filter((m) => visibleMachines.small?.[m.name]);
+
   const InventoryTab = () => {
     const renderPlot = (plotKey: string) => {
       const data = invResult[plotKey];
       const cfg = plotCfg[plotKey];
       return (
-        <div
-          key={plotKey}
-          style={{
-            background: S.card,
-            border: "1px solid " + S.border,
-            borderRadius: "10px",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              background: S.hl,
-              padding: "10px 14px",
-              borderBottom: "1px solid " + S.border,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <span
-                style={{
-                  fontWeight: 700,
-                  fontSize: "13px",
-                  color: pColor(plotKey),
-                }}
-              >
-                {cfg.label}
-              </span>
-              <span
-                style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}
-              >
-                {data.mult}x
-              </span>
-            </div>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>
-              {data.totalProd.toLocaleString()}/s
-            </div>
+        <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+          <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span></div>
+            <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
           </div>
           <div style={{ padding: "10px 14px" }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "6px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: data.largeOver ? S.red : S.dim,
-                  fontWeight: 600,
-                }}
-              >
-                LARGE: {data.largeCount}/{data.maxLarge}
-                {data.largeOver ? " OVER!" : ""}
-              </span>
-              <span style={{ fontSize: "11px", color: S.dim }}>
-                {data.largeProd.toLocaleString()}/s
-              </span>
-            </div>
-            {machines.large.map((m: typeof machines.large[0], i: number) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "5px 0",
-                  borderBottom: "1px solid " + S.border,
-                  gap: "4px",
-                }}
-              >
-                <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>
-                  {m.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: S.dim,
-                    flex: 1,
-                    textAlign: "center",
-                  }}
-                >
-                  {(m.base * data.mult).toLocaleString()}/s
-                </span>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    flex: 1,
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  {counterBtn(
-                    () => updateInventory(plotKey, "large", m.name, -1),
-                    "-"
-                  )}
-                  <span
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      color: S.accent,
-                      minWidth: "20px",
-                      textAlign: "center",
-                    }}
-                  >
-                    {inventory[plotKey].large[m.name]}
-                  </span>
-                  {counterBtn(
-                    () => updateInventory(plotKey, "large", m.name, +1),
-                    "+"
-                  )}
-                </div>
+            {visLarge.length > 0 && (<>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                <span style={{ fontSize: "11px", color: data.largeOver ? S.red : S.dim, fontWeight: 600 }}>LARGE: {data.largeCount}/{data.maxLarge}{data.largeOver ? " OVER!" : ""}</span>
+                <span style={{ fontSize: "11px", color: S.dim }}>{data.largeProd.toLocaleString()}/s</span>
               </div>
-            ))}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "12px",
-                marginBottom: "6px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: data.smallOver ? S.red : S.dim,
-                  fontWeight: 600,
-                }}
-              >
-                TILES: {data.smallTiles}/{data.maxSmallTiles}
-                {data.smallOver ? " OVER!" : ""}
-              </span>
-              <span style={{ fontSize: "11px", color: S.dim }}>
-                {data.smallProd.toLocaleString()}/s
-              </span>
-            </div>
-            {machines.small.map((m: typeof machines.small[0], i: number) => (
-              <div
-                key={i}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  padding: "5px 0",
-                  borderBottom: "1px solid " + S.border,
-                  gap: "4px",
-                }}
-              >
-                <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>
-                  {m.name}{" "}
-                  <span style={{ color: S.dim, fontSize: "10px" }}>
-                    ({m.size})
-                  </span>
-                </span>
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: S.dim,
-                    flex: 1,
-                    textAlign: "center",
-                  }}
-                >
-                  {(m.base * data.mult).toLocaleString()}/s
-                </span>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    flex: 1,
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  {counterBtn(
-                    () => updateInventory(plotKey, "small", m.name, -1),
-                    "-"
-                  )}
-                  <span
-                    style={{
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      color: S.accent,
-                      minWidth: "20px",
-                      textAlign: "center",
-                    }}
-                  >
-                    {inventory[plotKey].small[m.name]}
-                  </span>
-                  {counterBtn(
-                    () => updateInventory(plotKey, "small", m.name, +1),
-                    "+"
-                  )}
+              {visLarge.map((m, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
+                  <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name}</span>
+                  <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" as const }}>{(m.base * data.mult).toLocaleString()}/s</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
+                    {counterBtn(() => updateInventory(plotKey, "large", m.name, -1), "-")}
+                    <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" as const }}>{inventory[plotKey]?.large?.[m.name] || 0}</span>
+                    {counterBtn(() => updateInventory(plotKey, "large", m.name, +1), "+")}
+                  </div>
                 </div>
+              ))}
+            </>)}
+            {visSmall.length > 0 && (<>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: visLarge.length > 0 ? "12px" : "0", marginBottom: "6px" }}>
+                <span style={{ fontSize: "11px", color: data.smallOver ? S.red : S.dim, fontWeight: 600 }}>TILES: {data.smallTiles}/{data.maxSmallTiles}{data.smallOver ? " OVER!" : ""}</span>
+                <span style={{ fontSize: "11px", color: S.dim }}>{data.smallProd.toLocaleString()}/s</span>
               </div>
-            ))}
+              {visSmall.map((m, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
+                  <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name} <span style={{ color: S.dim, fontSize: "10px" }}>({m.size})</span></span>
+                  <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" as const }}>{(m.base * data.mult).toLocaleString()}/s</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
+                    {counterBtn(() => updateInventory(plotKey, "small", m.name, -1), "-")}
+                    <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" as const }}>{inventory[plotKey]?.small?.[m.name] || 0}</span>
+                    {counterBtn(() => updateInventory(plotKey, "small", m.name, +1), "+")}
+                  </div>
+                </div>
+              ))}
+            </>)}
+            {visLarge.length === 0 && visSmall.length === 0 && (
+              <div style={{ fontSize: "12px", color: S.dim, textAlign: "center" as const, padding: "16px 0" }}>No machines selected. Tap the gear icon to manage.</div>
+            )}
           </div>
         </div>
       );
@@ -1371,84 +1249,46 @@ export default function App() {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
         {heading("Machine Inventory")}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <p style={{ color: S.text, fontSize: "13px", margin: 0 }}>
-            Track machines per plot.
-          </p>
-          <button
-            onClick={() => setInventory(makeEmptyInventory())}
-            style={{
-              padding: "6px 12px",
-              borderRadius: "8px",
-              fontSize: "11px",
-              fontWeight: 600,
-              cursor: "pointer",
-              border: "1px solid " + S.border,
-              background: S.card,
-              color: S.red,
-            }}
-          >
-            Reset
-          </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button onClick={() => setShowManage(true)} style={{ padding: "6px 10px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>&#9881;</button>
+            <span style={{ color: S.dim, fontSize: "12px" }}>{visLarge.length + visSmall.length} machines shown</span>
+          </div>
+          <button onClick={() => setInventory(makeEmptyInventory())} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Reset</button>
         </div>
-        <div
-          style={{
-            background: S.hl,
-            border: "2px solid " + S.accent,
-            borderRadius: "12px",
-            padding: "16px",
-            textAlign: "center",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "11px",
-              color: S.accent,
-              fontWeight: 700,
-              marginBottom: "4px",
-            }}
-          >
-            ESTIMATED TOTAL PRODUCTION
-          </div>
-          <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800 }}>
-            {invResult.grandTotal.toLocaleString()}/s
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
-              gap: "6px",
-              marginTop: "10px",
-            }}
-          >
-            {PLOTS.map((p: string) => (
-              <div
-                key={p}
-                style={{
-                  background: S.card,
-                  borderRadius: "6px",
-                  padding: "6px",
-                  border: "1px solid " + S.border,
-                }}
-              >
-                <div style={{ fontSize: "10px", color: S.dim }}>{p}</div>
-                <div
-                  style={{
-                    fontSize: "12px",
-                    color: pColor(p),
-                    fontWeight: 700,
-                  }}
-                >
-                  {invResult[p].totalProd.toLocaleString()}/s
+        {showManage && (
+          <div style={{ background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>Manage machines</span>
+              <button onClick={() => setShowManage(false)} style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Done</button>
+            </div>
+            <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginBottom: "6px" }}>LARGE (2x2)</div>
+            {machines.large.map((m, i) => (
+              <div key={i} onClick={() => toggleMachine("large", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+                <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.large?.[m.name] ? S.accent : S.border), background: visibleMachines.large?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {visibleMachines.large?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>{"✓"}</span>}
                 </div>
+                <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
+                <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.base}/s base</span>
               </div>
             ))}
+            <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginTop: "12px", marginBottom: "6px" }}>SMALL</div>
+            {machines.small.map((m, i) => (
+              <div key={i} onClick={() => toggleMachine("small", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+                <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.small?.[m.name] ? S.accent : S.border), background: visibleMachines.small?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {visibleMachines.small?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>{"✓"}</span>}
+                </div>
+                <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
+                <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.size} · {m.base}/s</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px", textAlign: "center" as const }}>
+          <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "4px" }}>ESTIMATED TOTAL PRODUCTION</div>
+          <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800 }}>{invResult.grandTotal.toLocaleString()}/s</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginTop: "10px" }}>
+            {PLOTS.map((p) => (<div key={p} style={{ background: S.card, borderRadius: "6px", padding: "6px", border: "1px solid " + S.border }}><div style={{ fontSize: "10px", color: S.dim }}>{p}</div><div style={{ fontSize: "12px", color: pColor(p), fontWeight: 700 }}>{invResult[p].totalProd.toLocaleString()}/s</div></div>))}
           </div>
         </div>
         {PLOTS.map(renderPlot)}
