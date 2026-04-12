@@ -1,3 +1,8 @@
+// Crude Gains Calculator — improved version
+// Design: dark industrial theme with amber/gold accents, monospace data displays
+// Fix 1: All tab components are top-level (not nested inside App) to prevent focus loss on re-render
+// Fix 2: Upgrader now shows per-step drill purchase recommendations and skip advice
+
 import { useState, useMemo, useEffect, useRef, ReactNode, CSSProperties } from "react";
 
 // ── Constants ──
@@ -290,8 +295,866 @@ interface VisibleMachines {
   small: Record<string, boolean>;
 }
 
-// ── App ──
-export default function App() {
+// ── Shared style helpers (pure functions, no theme closure) ──
+function makeStyles(S: Theme) {
+  const inputStyle: CSSProperties = {
+    width: "100%", padding: "10px 12px", borderRadius: "8px", fontSize: "14px",
+    background: S.inputBg, border: "1px solid " + S.inputBorder, color: S.text,
+    outline: "none", boxSizing: "border-box",
+  };
+  const labelStyle: CSSProperties = {
+    fontSize: "11px", color: S.dim, textTransform: "uppercase",
+    letterSpacing: "0.5px", marginBottom: "4px",
+  };
+  return { inputStyle, labelStyle };
+}
+
+// ── Shared UI primitives ──
+function Heading({ text, S }: { text: string; S: Theme }) {
+  return <h2 style={{ fontSize: "20px", color: S.accent, fontWeight: 700, margin: "0 0 14px" }}>{text}</h2>;
+}
+function Card({ children, S }: { children: ReactNode; S: Theme }) {
+  return <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>{children}</div>;
+}
+function StatBox({ label, value, color, S }: { label: string; value: string; color?: string; S: Theme }) {
+  return (
+    <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
+      <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "2px" }}>{label}</div>
+      <div style={{ fontSize: "15px", color: color ?? S.gold, fontWeight: 700 }}>{value}</div>
+    </div>
+  );
+}
+function PillBtn({ label, active, onClick, S }: { label: string; active: boolean; onClick: () => void; S: Theme }) {
+  return (
+    <button onClick={onClick} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: active ? "2px solid " + S.accent : "1px solid " + S.border, background: active ? S.hl : S.card, color: active ? S.accent : S.dim }}>
+      {label}
+    </button>
+  );
+}
+function CounterBtn({ onClick, label, S }: { onClick: () => void; label: string; S: Theme }) {
+  return (
+    <button onClick={onClick} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "1px solid " + S.border, background: S.card, color: S.text, cursor: "pointer", fontSize: "15px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {label}
+    </button>
+  );
+}
+function pColor(pk: PlotKey, S: Theme) { return pk === "2x" ? S.blue : pk === "1x" ? S.green : "#D97706"; }
+
+// ── Timer Widget (top-level component) ──
+interface TimerWidgetProps {
+  S: Theme;
+  timerDone: boolean;
+  timerRunning: boolean;
+  timerRemaining: number;
+  grindTimeSeconds: number;
+  onStart: (secs: number) => void;
+  onStop: () => void;
+}
+function TimerWidget({ S, timerDone, timerRunning, timerRemaining, grindTimeSeconds, onStart, onStop }: TimerWidgetProps) {
+  if (timerDone) return (
+    <div style={{ background: S.ok, border: "2px solid " + S.okB, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
+      <div style={{ fontSize: "18px", fontWeight: 800, color: S.green, marginBottom: "6px" }}>TIME'S UP! GO SELL!</div>
+      <div style={{ fontSize: "13px", color: S.text, marginBottom: "10px" }}>You should have enough gasoline now.</div>
+      <button onClick={onStop} style={{ padding: "8px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "none", background: S.green, color: "#fff" }}>Dismiss</button>
+    </div>
+  );
+  if (timerRunning) return (
+    <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>TIMER RUNNING</div>
+      <div style={{ fontSize: "28px", fontWeight: 800, color: S.accent, marginBottom: "10px" }}>{formatTime(timerRemaining)}</div>
+      <button onClick={onStop} style={{ padding: "6px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Cancel</button>
+    </div>
+  );
+  if (!grindTimeSeconds || grindTimeSeconds <= 0) return null;
+  return (
+    <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "6px" }}>SET GRIND TIMER</div>
+      <div style={{ fontSize: "14px", color: S.text, marginBottom: "10px" }}>{formatTime(grindTimeSeconds)}</div>
+      <button onClick={() => onStart(grindTimeSeconds)} style={{ padding: "8px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Start Timer</button>
+    </div>
+  );
+}
+
+// ── Calc Tab ──
+interface CalcTabProps {
+  S: Theme;
+  production: string; setProduction: (v: string) => void;
+  sellRate: string; setSellRate: (v: string) => void;
+  gasoline: string; setGasoline: (v: string) => void;
+  cash: string; setCash: (v: string) => void;
+  cashBoost: string; setCashBoost: (v: string) => void;
+  refCap: number; setRefCap: (v: number) => void;
+  savingsMinutes: string; setSavingsMinutes: (v: string) => void;
+  target: string; setTarget: (v: string) => void;
+  allTargets: Target[];
+  showAddTarget: boolean; setShowAddTarget: (v: boolean) => void;
+  newTargetName: string; setNewTargetName: (v: string) => void;
+  newTargetCost: string; setNewTargetCost: (v: string) => void;
+  addTarget: () => void;
+  deleteTarget: (id: string) => void;
+  grindResult: GrindResult;
+  savingsResult: { gasProduced: number; cashEarned: number; secs: number } | null;
+  timerDone: boolean; timerRunning: boolean; timerRemaining: number;
+  onTimerStart: (s: number) => void; onTimerStop: () => void;
+}
+
+function CalcTab({
+  S, production, setProduction, sellRate, setSellRate, gasoline, setGasoline,
+  cash, setCash, cashBoost, setCashBoost, refCap, setRefCap,
+  savingsMinutes, setSavingsMinutes, target, setTarget,
+  allTargets, showAddTarget, setShowAddTarget,
+  newTargetName, setNewTargetName, newTargetCost, setNewTargetCost,
+  addTarget, deleteTarget, grindResult: gr, savingsResult,
+  timerDone, timerRunning, timerRemaining, onTimerStart, onTimerStop,
+}: CalcTabProps) {
+  const { inputStyle, labelStyle } = makeStyles(S);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Grind Calculator" S={S} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Production (/s)</div>
+          <input style={inputStyle} type="number" value={production} onChange={e => setProduction(e.target.value)} placeholder="0" />
+        </div>
+        <div>
+          <div style={labelStyle}>Sell Rate ($)</div>
+          <input style={inputStyle} type="number" value={sellRate} onChange={e => setSellRate(e.target.value)} placeholder="0" />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Gasoline (B)</div>
+          <input style={inputStyle} type="number" value={gasoline} onChange={e => setGasoline(e.target.value)} placeholder="0" />
+        </div>
+        <div>
+          <div style={labelStyle}>Cash (B)</div>
+          <input style={inputStyle} type="number" value={cash} onChange={e => setCash(e.target.value)} placeholder="0" />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Cash Boost (%)</div>
+          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="285" />
+        </div>
+        <div>
+          <div style={labelStyle}>Refinery Capacity</div>
+          <select value={refCap} onChange={e => setRefCap(parseInt(e.target.value))} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
+            {REFINERY_PRESETS.map(v => <option key={v} value={v}>{formatRefCap(v)}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style={labelStyle}>Saving For</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+          {allTargets.map((t) => (
+            <div key={t.id} style={{ position: "relative", display: "inline-flex" }}>
+              <button onClick={() => setTarget(t.id)} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: target === t.id ? "2px solid " + S.accent : "1px solid " + S.border, background: target === t.id ? S.hl : S.card, color: target === t.id ? S.accent : S.dim, paddingRight: t.id.startsWith("custom_") ? "24px" : "12px" }}>
+                {t.n}
+              </button>
+              {t.id.startsWith("custom_") && (
+                <button onClick={e => { e.stopPropagation(); deleteTarget(t.id); }} style={{ position: "absolute", right: "2px", top: "50%", transform: "translateY(-50%)", width: "16px", height: "16px", borderRadius: "50%", border: "none", background: "transparent", color: S.red, cursor: "pointer", fontSize: "10px", fontWeight: 800 }}>x</button>
+              )}
+            </div>
+          ))}
+          <button onClick={() => setShowAddTarget(!showAddTarget)} style={{ padding: "6px 10px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.green }}>+</button>
+        </div>
+        {showAddTarget && (
+          <div style={{ marginTop: "8px", display: "flex", gap: "6px", alignItems: "flex-end" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Name</div>
+              <input style={{ ...inputStyle, padding: "8px 10px", fontSize: "12px" }} value={newTargetName} onChange={e => setNewTargetName(e.target.value)} placeholder="e.g. 2nd Ruby" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Cost (B)</div>
+              <input style={{ ...inputStyle, padding: "8px 10px", fontSize: "12px" }} type="number" value={newTargetCost} onChange={e => setNewTargetCost(e.target.value)} placeholder="e.g. 85.5" />
+            </div>
+            <button onClick={addTarget} style={{ padding: "8px 14px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "none", background: S.accent, color: "#fff", whiteSpace: "nowrap" }}>Add</button>
+          </div>
+        )}
+      </div>
+      <div style={{ height: "1px", background: S.border }} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+        <StatBox label="Cost"       value={"$" + formatNum(gr.targetCost)} S={S} />
+        <StatBox label="Gas Needed" value={formatNum(gr.gasNeeded)}         color={S.blue} S={S} />
+        <StatBox label="Eff. Rate"  value={"$" + gr.effectiveRate.toFixed(2)} S={S} />
+      </div>
+      <div style={{ background: gr.canAfford ? S.ok : S.hl, border: "2px solid " + (gr.canAfford ? S.okB : S.border), borderRadius: "12px", padding: "18px", textAlign: "center" }}>
+        {gr.canAfford ? (
+          <div>
+            <div style={{ fontSize: "14px", color: S.green, fontWeight: 700, marginBottom: "4px" }}>YOU CAN AFFORD IT!</div>
+            <div style={{ fontSize: "12px", color: S.text }}>Total: ${formatNum(gr.totalCash)}</div>
+            <div style={{ fontSize: "12px", color: S.dim, marginTop: "2px" }}>Leftover: ${formatNum(Math.max(0, gr.totalCash - gr.targetCost))}</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800, marginBottom: "4px" }}>{formatTime(gr.timeSeconds)}</div>
+            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "10px" }}>until you can afford it</div>
+            <div style={{ width: "100%", height: "8px", background: S.pBg, borderRadius: "4px", overflow: "hidden", marginBottom: "10px" }}>
+              <div style={{ width: gr.pct + "%", height: "100%", background: S.pFill, borderRadius: "4px", transition: "width 0.6s ease" }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div style={{ background: S.card, borderRadius: "8px", padding: "8px", border: "1px solid " + S.border }}>
+                <div style={{ fontSize: "10px", color: S.dim }}>GAS LEFT</div>
+                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatNum(gr.remaining)}</div>
+              </div>
+              <div style={{ background: S.card, borderRadius: "8px", padding: "8px", border: "1px solid " + S.border }}>
+                <div style={{ fontSize: "10px", color: S.dim }}>PROGRESS</div>
+                <div style={{ fontSize: "14px", color: S.accent, fontWeight: 700 }}>{gr.pct.toFixed(1)}%</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      <TimerWidget S={S} timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining} grindTimeSeconds={gr.timeSeconds} onStart={onTimerStart} onStop={onTimerStop} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+        <StatBox label={"Refinery (" + formatRefCap(refCap) + ")"} value={formatTime(gr.refineryFill)} color={S.blue} S={S} />
+        <StatBox label="Gas Value"  value={"$" + formatNum(gr.gasValue)}                              color={S.green} S={S} />
+        <StatBox label="Income"     value={"$" + formatNum(gr.p * gr.effectiveRate) + "/s"}           color={S.accent} S={S} />
+      </div>
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px" }}>
+        <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "10px" }}>SAVINGS CALCULATOR</div>
+        <div>
+          <div style={labelStyle}>Minutes of grinding</div>
+          <input style={inputStyle} type="number" value={savingsMinutes} onChange={e => setSavingsMinutes(e.target.value)} placeholder="e.g. 30" />
+        </div>
+        {savingsResult ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px" }}>
+            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
+              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Gas Produced</div>
+              <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatNum(savingsResult.gasProduced)}</div>
+            </div>
+            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
+              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Cash Earned</div>
+              <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>${formatNum(savingsResult.cashEarned)}</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", marginTop: "10px" }}>
+            Enter minutes + production + sell rate to calculate
+          </div>
+        )}
+      </div>
+      <Card S={S}>
+        <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>QUICK REFERENCE</div>
+        {allTargets.map((x, i) => {
+          const cost = x.c * 1e9;
+          const g    = gr.effectiveRate > 0 ? cost / gr.effectiveRate : 0;
+          const t    = gr.p > 0 && gr.effectiveRate > 0 ? g / gr.p : 0;
+          return (
+            <div key={x.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "6px 0", borderBottom: i < allTargets.length - 1 ? "1px solid " + S.border : "none" }}>
+              <span style={{ color: S.text, fontWeight: 500 }}>{x.n}</span>
+              <span style={{ color: S.dim }}>{formatNum(g)} gas</span>
+              <span style={{ color: S.blue, fontWeight: 600 }}>{formatTime(t)}</span>
+            </div>
+          );
+        })}
+      </Card>
+    </div>
+  );
+}
+
+// ── Inventory Tab ──
+interface InventoryTabProps {
+  S: Theme;
+  inventory: InventoryState;
+  invResult: InvResult;
+  visibleMachines: VisibleMachines;
+  showManage: boolean;
+  setShowManage: (v: boolean) => void;
+  toggleMachine: (type: "large" | "small", name: string) => void;
+  updateInventory: (plot: PlotKey, type: "large" | "small", machine: string, delta: number) => void;
+  setInventory: (v: InventoryState) => void;
+}
+
+function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, setShowManage, toggleMachine, updateInventory, setInventory }: InventoryTabProps) {
+  const { inputStyle: _is, labelStyle: _ls } = makeStyles(S);
+  const visLarge = machines.large.filter((m) => visibleMachines.large?.[m.name]);
+  const visSmall = machines.small.filter((m) => visibleMachines.small?.[m.name]);
+
+  const renderPlot = (plotKey: PlotKey) => {
+    const data = invResult[plotKey];
+    const cfg  = plotCfg[plotKey];
+    return (
+      <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+        <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span></div>
+          <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
+        </div>
+        <div style={{ padding: "10px 14px" }}>
+          {visLarge.length > 0 && (<>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+              <span style={{ fontSize: "11px", color: data.largeOver ? S.red : S.dim, fontWeight: 600 }}>LARGE: {data.largeCount}/{data.maxLarge}{data.largeOver ? " OVER!" : ""}</span>
+              <span style={{ fontSize: "11px", color: S.dim }}>{data.largeProd.toLocaleString()}/s</span>
+            </div>
+            {visLarge.map((m, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name}</span>
+                <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" }}>{(m.base * data.mult).toLocaleString()}/s</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
+                  <CounterBtn onClick={() => updateInventory(plotKey, "large", m.name, -1)} label="-" S={S} />
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" }}>{inventory[plotKey]?.large?.[m.name] ?? 0}</span>
+                  <CounterBtn onClick={() => updateInventory(plotKey, "large", m.name, +1)} label="+" S={S} />
+                </div>
+              </div>
+            ))}
+          </>)}
+          {visSmall.length > 0 && (<>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: visLarge.length > 0 ? "12px" : "0", marginBottom: "6px" }}>
+              <span style={{ fontSize: "11px", color: data.smallOver ? S.red : S.dim, fontWeight: 600 }}>TILES: {data.smallTiles}/{data.maxSmallTiles}{data.smallOver ? " OVER!" : ""}</span>
+              <span style={{ fontSize: "11px", color: S.dim }}>{data.smallProd.toLocaleString()}/s</span>
+            </div>
+            {visSmall.map((m, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name} <span style={{ color: S.dim, fontSize: "10px" }}>({m.size})</span></span>
+                <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" }}>{(m.base * data.mult).toLocaleString()}/s</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
+                  <CounterBtn onClick={() => updateInventory(plotKey, "small", m.name, -1)} label="-" S={S} />
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" }}>{inventory[plotKey]?.small?.[m.name] ?? 0}</span>
+                  <CounterBtn onClick={() => updateInventory(plotKey, "small", m.name, +1)} label="+" S={S} />
+                </div>
+              </div>
+            ))}
+          </>)}
+          {visLarge.length === 0 && visSmall.length === 0 && (
+            <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", padding: "16px 0" }}>No machines selected. Tap the gear icon to manage.</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Machine Inventory" S={S} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <button onClick={() => setShowManage(true)} style={{ padding: "6px 10px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>⚙</button>
+          <span style={{ color: S.dim, fontSize: "12px" }}>{visLarge.length + visSmall.length} machines shown</span>
+        </div>
+        <button onClick={() => setInventory(makeEmptyInventory())} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Reset</button>
+      </div>
+      {showManage && (
+        <div style={{ background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+            <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>Manage machines</span>
+            <button onClick={() => setShowManage(false)} style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Done</button>
+          </div>
+          <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginBottom: "6px" }}>LARGE (2×2)</div>
+          {machines.large.map((m, i) => (
+            <div key={i} onClick={() => toggleMachine("large", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+              <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.large?.[m.name] ? S.accent : S.border), background: visibleMachines.large?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {visibleMachines.large?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
+              </div>
+              <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
+              <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.base}/s base</span>
+            </div>
+          ))}
+          <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginTop: "12px", marginBottom: "6px" }}>SMALL</div>
+          {machines.small.map((m, i) => (
+            <div key={i} onClick={() => toggleMachine("small", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+              <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.small?.[m.name] ? S.accent : S.border), background: visibleMachines.small?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {visibleMachines.small?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
+              </div>
+              <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
+              <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.size} · {m.base}/s</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
+        <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "4px" }}>ESTIMATED TOTAL PRODUCTION</div>
+        <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800 }}>{invResult.grandTotal.toLocaleString()}/s</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginTop: "10px" }}>
+          {PLOTS.map(p => (
+            <div key={p} style={{ background: S.card, borderRadius: "6px", padding: "6px", border: "1px solid " + S.border }}>
+              <div style={{ fontSize: "10px", color: S.dim }}>{p}</div>
+              <div style={{ fontSize: "12px", color: pColor(p, S), fontWeight: 700 }}>{invResult[p].totalProd.toLocaleString()}/s</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {PLOTS.map(renderPlot)}
+    </div>
+  );
+}
+
+// ── Compare Tab ──
+interface CompareTabProps {
+  S: Theme;
+  compFrom: string; setCompFrom: (v: string) => void;
+  compTo: string; setCompTo: (v: string) => void;
+  compPlot: number; setCompPlot: (v: number) => void;
+  sellRate: string; production: string; boostMultiplier: number;
+}
+
+function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, setCompPlot, sellRate, production, boostMultiplier }: CompareTabProps) {
+  const { inputStyle, labelStyle } = makeStyles(S);
+  const m1   = machines.large[parseInt(compFrom)] ?? machines.large[0];
+  const m2   = machines.large[parseInt(compTo)]   ?? machines.large[1];
+  const prod1 = m1.base * compPlot, prod2 = m2.base * compPlot, gain = prod2 - prod1;
+  const effectiveRate  = (parseFloat(sellRate) || 15) * boostMultiplier;
+  const gasForUpgrade  = effectiveRate > 0 ? m2.cost / effectiveRate : 0;
+  const timeForUpgrade = (parseFloat(production) || 1) > 0 ? gasForUpgrade / (parseFloat(production) || 1) : 0;
+  const roiSeconds     = gain > 0 && effectiveRate > 0 ? m2.cost / (gain * effectiveRate) : 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Compare Machines" S={S} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Current</div>
+          <select value={compFrom} onChange={e => setCompFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={labelStyle}>Upgrade</div>
+          <select value={compTo} onChange={e => setCompTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <div style={labelStyle}>Plot</div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {[1, 2, 3].map(m => <PillBtn key={m} label={m + "x"} active={compPlot === m} onClick={() => setCompPlot(m)} S={S} />)}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px", textAlign: "center" }}>
+          <div style={{ fontSize: "11px", color: S.dim }}>{m1.name}</div>
+          <div style={{ fontSize: "20px", color: S.text, fontWeight: 700 }}>{prod1.toLocaleString()}/s</div>
+          <div style={{ fontSize: "12px", color: S.dim }}>{m1.costLabel}</div>
+        </div>
+        <div style={{ background: S.hl, border: "1px solid " + S.accent, borderRadius: "10px", padding: "14px", textAlign: "center" }}>
+          <div style={{ fontSize: "11px", color: S.accent }}>{m2.name}</div>
+          <div style={{ fontSize: "20px", color: S.accent, fontWeight: 700 }}>{prod2.toLocaleString()}/s</div>
+          <div style={{ fontSize: "12px", color: S.dim }}>{m2.costLabel}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+        <StatBox label="Gain" value={"+" + gain.toLocaleString() + "/s"} color={gain > 0 ? S.green : S.red} S={S} />
+        <StatBox label="Cost" value={"$" + formatNum(m2.cost)} S={S} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+        <StatBox label="Time to Buy"  value={formatTime(timeForUpgrade)} color={S.blue} S={S} />
+        <StatBox label="ROI Payback"  value={formatTime(roiSeconds)}     color={S.accent} S={S} />
+      </div>
+      {gain > 0 && roiSeconds > 0 && (
+        <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", fontStyle: "italic" }}>
+          Upgrade pays for itself in {formatTime(roiSeconds)} of extra production
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Upgrade Step with drill purchase recommendations ──
+interface UpgradeStep {
+  from: LargeMachine; to: LargeMachine;
+  gasNeeded: number; timeS: number;
+  cumulativeCost: number; cumulativeTime: number; prodGain: number;
+  // NEW: drill purchase recommendations
+  recommendedCount: number;     // how many of `to` drill to buy
+  maxSlots: number;             // max large slots (assuming 3x plot = 12)
+  skipAdvice: string | null;    // null = don't skip; string = reason to skip
+  roiSeconds: number;           // ROI payback time for this drill
+  valueScore: number;           // prod-per-dollar score
+}
+
+function calcUpgradePath(
+  upgFromIdx: number,
+  upgToIdx: number,
+  upgEffectiveRate: number,
+  upgProd: number,
+  numPlots: number,
+  largePer: number
+): UpgradeStep[] {
+  if (upgFromIdx >= upgToIdx) return [];
+  const steps: UpgradeStep[] = [];
+  let cumulativeCost = 0, cumulativeTime = 0;
+  const maxSlots = numPlots * largePer;
+
+  for (let i = upgFromIdx; i < upgToIdx; i++) {
+    const current = machines.large[i];
+    const next    = machines.large[i + 1];
+    const gasNeeded = upgEffectiveRate > 0 ? next.cost / upgEffectiveRate : 0;
+    const timeS     = upgProd > 0 ? gasNeeded / upgProd : 0;
+    cumulativeCost += next.cost;
+    cumulativeTime += timeS;
+    const prodGain = next.base - current.base;
+
+    // Recommended count: fill all slots with the new drill
+    const recommendedCount = maxSlots;
+
+    // ROI: how long until the prod gain pays back the cost
+    const roiSeconds = prodGain > 0 && upgEffectiveRate > 0
+      ? next.cost / (prodGain * upgEffectiveRate)
+      : 0;
+
+    // Value score: prod per billion dollars
+    const valueScore = next.base / (next.cost / 1e9);
+
+    // Skip advice: if the NEXT drill (i+2) has a significantly better value score
+    // AND the cost difference is less than 3x, suggest skipping
+    let skipAdvice: string | null = null;
+    if (i + 2 <= upgToIdx && i + 2 < machines.large.length) {
+      const nextNext = machines.large[i + 2];
+      const nextNextValue = nextNext.base / (nextNext.cost / 1e9);
+      const costRatio = nextNext.cost / next.cost;
+      // If skipping saves less than 20% of the next drill cost AND next-next is >40% better value
+      if (nextNextValue > valueScore * 1.4 && costRatio < 4) {
+        skipAdvice = `Consider skipping — ${nextNext.name} offers ${((nextNextValue / valueScore - 1) * 100).toFixed(0)}% better value per $`;
+      }
+    }
+
+    steps.push({ from: current, to: next, gasNeeded, timeS, cumulativeCost, cumulativeTime, prodGain, recommendedCount, maxSlots, skipAdvice, roiSeconds, valueScore });
+  }
+  return steps;
+}
+
+// ── Upgrade Tab ──
+interface UpgradeTabProps {
+  S: Theme;
+  upgFrom: string; setUpgFrom: (v: string) => void;
+  upgTo: string; setUpgTo: (v: string) => void;
+  upgPlot: PlotKey; setUpgPlot: (v: PlotKey) => void;
+  sellRate: string; production: string; boostMultiplier: number;
+}
+
+function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPlot, sellRate, production, boostMultiplier }: UpgradeTabProps) {
+  const { inputStyle, labelStyle } = makeStyles(S);
+  const upgFromIdx = parseInt(upgFrom);
+  const upgToIdx   = parseInt(upgTo);
+  const upgEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
+  const upgProd          = parseFloat(production) || 0;
+  const cfg = plotCfg[upgPlot];
+
+  const upgradePath = useMemo<UpgradeStep[]>(() =>
+    calcUpgradePath(upgFromIdx, upgToIdx, upgEffectiveRate, upgProd, cfg.plots, cfg.largePer),
+    [upgFromIdx, upgToIdx, upgEffectiveRate, upgProd, cfg.plots, cfg.largePer]
+  );
+
+  const upgTotalProdGain = upgToIdx > upgFromIdx ? machines.large[upgToIdx].base - machines.large[upgFromIdx].base : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Upgrade Path Planner" S={S} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Start Drill</div>
+          <select value={upgFrom} onChange={e => setUpgFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
+            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={labelStyle}>Goal Drill</div>
+          <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
+            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+          </select>
+        </div>
+      </div>
+      {/* Plot selector for slot count */}
+      <div>
+        <div style={labelStyle}>Plot Type (for slot count)</div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          {PLOTS.map(p => <PillBtn key={p} label={p} active={upgPlot === p} onClick={() => setUpgPlot(p)} S={S} />)}
+        </div>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>
+          {cfg.plots} plots × {cfg.largePer} large slots = {cfg.plots * cfg.largePer} total large slots
+        </div>
+      </div>
+      {upgFromIdx >= upgToIdx ? (
+        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+          Select a goal drill higher than your start drill.
+        </div>
+      ) : (
+        <>
+          <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" }}>Full Path Summary</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Total Cost</div>
+                <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum(upgradePath[upgradePath.length - 1]?.cumulativeCost ?? 0)}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Total Time</div>
+                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime(upgradePath[upgradePath.length - 1]?.cumulativeTime ?? 0)}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Prod Gain</div>
+                <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>+{upgTotalProdGain.toLocaleString()}/s</div>
+              </div>
+            </div>
+            {(!upgProd || !upgEffectiveRate) && (
+              <div style={{ marginTop: "8px", fontSize: "11px", color: S.dim, textAlign: "center" }}>
+                ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {upgradePath.map((step, i) => (
+              <div key={i} style={{ background: S.card, border: "1px solid " + (step.skipAdvice ? S.gold : S.border), borderRadius: "10px", overflow: "hidden" }}>
+                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
+                    <span style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{step.from.name} → {step.to.name}</span>
+                  </div>
+                  <span style={{ fontSize: "12px", color: S.accent, fontWeight: 700 }}>{step.to.costLabel}</span>
+                </div>
+
+                {/* Skip advice banner */}
+                {step.skipAdvice && (
+                  <div style={{ background: "rgba(255,213,80,0.12)", borderBottom: "1px solid " + S.gold, padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "13px" }}>⚡</span>
+                    <span style={{ fontSize: "11px", color: S.gold, fontWeight: 600 }}>{step.skipAdvice}</span>
+                  </div>
+                )}
+
+                <div style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Gas Needed</div>
+                    <div style={{ fontSize: "13px", color: S.blue, fontWeight: 600 }}>{upgEffectiveRate > 0 ? formatNum(step.gasNeeded) : "--"}</div>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Grind Time</div>
+                    <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Prod Gain</div>
+                    <div style={{ fontSize: "13px", color: S.green, fontWeight: 600 }}>+{step.prodGain.toLocaleString()}/s</div>
+                  </div>
+                </div>
+
+                {/* NEW: Drill purchase recommendation */}
+                <div style={{ padding: "8px 12px", borderTop: "1px solid " + S.border, background: "rgba(0,0,0,0.03)" }}>
+                  <div style={{ fontSize: "10px", color: S.accent, fontWeight: 700, textTransform: "uppercase", marginBottom: "6px" }}>
+                    Purchase Recommendation
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                    <div style={{ background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
+                      <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Buy</div>
+                      <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>
+                        {step.recommendedCount}× {step.to.name}
+                      </div>
+                      <div style={{ fontSize: "10px", color: S.dim }}>
+                        fills all {step.maxSlots} large slots
+                      </div>
+                    </div>
+                    <div style={{ background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
+                      <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Total spend</div>
+                      <div style={{ fontSize: "13px", color: S.gold, fontWeight: 700 }}>
+                        ${formatNum(step.to.cost * step.recommendedCount)}
+                      </div>
+                      <div style={{ fontSize: "10px", color: S.dim }}>
+                        ROI: {step.roiSeconds > 0 ? formatTime(step.roiSeconds) : "--"}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Best small drill recommendation */}
+                  <div style={{ marginTop: "6px", background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
+                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Best small drill to pair</div>
+                    <div style={{ fontSize: "12px", color: S.green, fontWeight: 600 }}>
+                      {(() => {
+                        const sorted = [...purchasableSmall].sort((a, b) => (b.base / b.tiles) - (a.base / a.tiles));
+                        const best = sorted[0];
+                        const smallSlots = cfg.plots * cfg.smallTiles;
+                        const count = Math.floor(smallSlots / best.tiles);
+                        return `${count}× ${best.name} (${best.size}) — fills ${smallSlots} small tiles`;
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ padding: "6px 12px 8px", borderTop: "1px solid " + S.border, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "10px", color: S.dim }}>Running total: <span style={{ color: S.gold, fontWeight: 600 }}>${formatNum(step.cumulativeCost)}</span></span>
+                  <span style={{ fontSize: "10px", color: S.dim }}>Time so far: <span style={{ color: S.blue, fontWeight: 600 }}>{formatTime(step.cumulativeTime)}</span></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Optimizer Tab ──
+interface OptimizerTabProps {
+  S: Theme;
+  optPlot: PlotKey; setOptPlot: (v: PlotKey) => void;
+  optBudgetB: string; setOptBudgetB: (v: string) => void;
+  sellRate: string; boostMultiplier: number;
+}
+
+function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier }: OptimizerTabProps) {
+  const { inputStyle, labelStyle } = makeStyles(S);
+  const optCfg           = plotCfg[optPlot];
+  const optMaxLarge      = optCfg.plots * optCfg.largePer;
+  const optMaxSmallTiles = optCfg.plots * optCfg.smallTiles;
+  const optEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
+  const optBudget        = (parseFloat(optBudgetB) || 0) * 1e9;
+
+  interface OptResult {
+    largeDrill: LargeMachine | null;
+    largeCount: number;
+    smallDrill: SmallMachine;
+    smallCount: number;
+    totalProd: number;
+    remainingBudget: number;
+    incomePerSec: number;
+  }
+
+  const optimized = useMemo<OptResult | null>(() => {
+    if (!optBudget) return null;
+    let remaining  = optBudget;
+    let largeDrill: LargeMachine | null = null;
+    let largeCount = 0;
+    let totalProd  = 0;
+    for (let i = machines.large.length - 1; i >= 0; i--) {
+      if (machines.large[i].cost <= remaining) {
+        largeDrill = machines.large[i];
+        largeCount = Math.min(optMaxLarge, Math.floor(remaining / largeDrill.cost));
+        remaining -= largeCount * largeDrill.cost;
+        break;
+      }
+    }
+    const sortedSmall = [...purchasableSmall].sort((a, b) => (b.base / b.tiles) - (a.base / a.tiles));
+    const smallDrill  = sortedSmall[0];
+    const smallCount  = Math.floor(optMaxSmallTiles / smallDrill.tiles);
+    if (largeDrill) totalProd += largeCount * largeDrill.base * optCfg.mult;
+    totalProd += smallCount * smallDrill.base * optCfg.mult;
+    return { largeDrill, largeCount, smallDrill, smallCount, totalProd, remainingBudget: remaining, incomePerSec: totalProd * optEffectiveRate };
+  }, [optBudget, optPlot, optEffectiveRate, optMaxLarge, optMaxSmallTiles, optCfg.mult]);
+
+  const rankedLarge = useMemo<(LargeMachine & { prodPerDollar: number })[]>(() =>
+    [...machines.large].map(m => ({ ...m, prodPerDollar: m.base / m.cost })).sort((a, b) => b.prodPerDollar - a.prodPerDollar),
+  []);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Plot Optimizer" S={S} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+        <div>
+          <div style={labelStyle}>Plot Type</div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            {PLOTS.map(p => <PillBtn key={p} label={p} active={optPlot === p} onClick={() => setOptPlot(p)} S={S} />)}
+          </div>
+        </div>
+        <div>
+          <div style={labelStyle}>Budget (B)</div>
+          <input style={inputStyle} type="number" value={optBudgetB} onChange={e => setOptBudgetB(e.target.value)} placeholder="e.g. 500" />
+        </div>
+      </div>
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+        <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border }}>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>LARGE DRILLS — VALUE RANKING</span>
+          <span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>prod per billion spent</span>
+        </div>
+        <div style={{ padding: "0 4px" }}>
+          {rankedLarge.map((m, i) => {
+            const isAffordable = optBudget > 0 && m.cost <= optBudget;
+            const isBest = i === 0;
+            return (
+              <div key={m.name} style={{ display: "flex", alignItems: "center", padding: "8px 10px", borderBottom: i < rankedLarge.length - 1 ? "1px solid " + S.border : "none", background: isBest ? S.ok : "transparent", gap: "6px" }}>
+                <span style={{ fontSize: "11px", fontWeight: 800, color: isBest ? S.green : S.dim, minWidth: "18px" }}>#{i + 1}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "12px", color: S.text, fontWeight: isBest ? 700 : 400 }}>{m.name}</div>
+                  <div style={{ fontSize: "10px", color: S.dim }}>{m.costLabel} · {m.base}/s base</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "12px", color: isBest ? S.green : S.accent, fontWeight: 700 }}>{(m.prodPerDollar * 1e9).toFixed(1)}/B</div>
+                  {optBudget > 0 && (
+                    <div style={{ fontSize: "10px", color: isAffordable ? S.green : S.red, fontWeight: 600 }}>
+                      {isAffordable ? "✓ in budget" : "✗ over budget"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ fontSize: "11px", color: S.dim, fontStyle: "italic", textAlign: "center" }}>
+        ℹ️ Mini Diamond Drill &amp; Mini Multi Drill excluded — pack-exclusive, not purchasable
+      </div>
+      {optimized ? (
+        <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+          <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "10px", textTransform: "uppercase" }}>Recommended Loadout — {optPlot} plot</div>
+          {optimized.largeDrill ? (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid " + S.border, marginBottom: "8px" }}>
+              <div>
+                <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{optimized.largeCount}× {optimized.largeDrill.name}</div>
+                <div style={{ fontSize: "11px", color: S.dim }}>Large · {optimized.largeCount}/{optMaxLarge} slots · ${formatNum(optimized.largeDrill.cost)} each</div>
+              </div>
+              <div style={{ fontSize: "13px", color: S.blue, fontWeight: 700 }}>
+                {(optimized.largeCount * optimized.largeDrill.base * optCfg.mult).toLocaleString()}/s
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "8px" }}>No large drill affordable — increase budget.</div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid " + S.border, marginBottom: "10px" }}>
+            <div>
+              <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{optimized.smallCount}× {optimized.smallDrill.name}</div>
+              <div style={{ fontSize: "11px", color: S.dim }}>Small · {optimized.smallDrill.size} · fills {optMaxSmallTiles} tiles</div>
+            </div>
+            <div style={{ fontSize: "13px", color: S.green, fontWeight: 700 }}>
+              {(optimized.smallCount * optimized.smallDrill.base * optCfg.mult).toLocaleString()}/s
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Total Prod</div>
+              <div style={{ fontSize: "14px", color: S.accent, fontWeight: 800 }}>{optimized.totalProd.toLocaleString()}/s</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Budget Left</div>
+              <div style={{ fontSize: "14px", color: optimized.remainingBudget > 0 ? S.green : S.dim, fontWeight: 700 }}>${formatNum(optimized.remainingBudget)}</div>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Income/s</div>
+              <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{optEffectiveRate > 0 ? "$" + formatNum(optimized.incomePerSec) : "--"}</div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+          Enter a budget above to see your optimal loadout recommendation.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Formulas Tab ──
+interface FormulasTabProps {
+  S: Theme;
+  clearAllData: () => void;
+}
+
+function FormulasTab({ S, clearAllData }: FormulasTabProps) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <Heading text="Formulas" S={S} />
+      {formulasList.map((f, i) => (
+        <div key={i} style={{ padding: "12px", background: S.card, border: "1px solid " + S.border, borderRadius: "10px" }}>
+          <div style={{ fontSize: "13px", color: S.gold, fontWeight: 700, marginBottom: "4px" }}>{f.name}</div>
+          <div style={{ fontSize: "13px", color: S.blue, fontFamily: "monospace", marginBottom: "4px" }}>{f.formula}</div>
+          <div style={{ fontSize: "11px", color: S.dim }}>{f.example}</div>
+        </div>
+      ))}
+      <div style={{ marginTop: "10px", paddingTop: "14px", borderTop: "1px solid " + S.border }}>
+        <button onClick={clearAllData} style={{ padding: "10px 20px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.red, background: "transparent", color: S.red, width: "100%" }}>
+          Reset All Saved Data
+        </button>
+        <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", marginTop: "4px" }}>Clears calculator, inventory, targets, and theme</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──
+export default function Home() {
   const [theme, setTheme]               = useSaved<string>("theme", "cherry");
   const [showThemes, setShowThemes]     = useState(false);
   const S: Theme                        = themes[theme] ?? themes.cherry;
@@ -320,6 +1183,7 @@ export default function App() {
 
   const [upgFrom, setUpgFrom]   = useSaved<string>("upgFrom", "0");
   const [upgTo, setUpgTo]       = useSaved<string>("upgTo", String(machines.large.length - 1));
+  const [upgPlot, setUpgPlot]   = useSaved<PlotKey>("upgPlot", "3x");
   const [optPlot, setOptPlot]   = useSaved<PlotKey>("optPlot", "3x");
   const [optBudgetB, setOptBudgetB] = useSaved<string>("optBudget", "");
 
@@ -394,6 +1258,10 @@ export default function App() {
     if (target === id) setTarget("diamond");
   };
 
+  const toggleMachine = (type: "large" | "small", name: string) => {
+    setVisibleMachines((prev) => ({ ...prev, [type]: { ...prev[type], [name]: !prev[type][name] } }));
+  };
+
   const updateInventory = (plot: PlotKey, type: "large" | "small", machine: string, delta: number) => {
     setInventory((prev) => {
       const plotData = prev[plot];
@@ -430,678 +1298,13 @@ export default function App() {
     return { gasProduced, cashEarned, secs };
   }, [savingsMinutes, production, grindResult.effectiveRate]);
 
-  // ── Style helpers ──
-  const inputStyle: CSSProperties = {
-    width: "100%", padding: "10px 12px", borderRadius: "8px", fontSize: "14px",
-    background: S.inputBg, border: "1px solid " + S.inputBorder, color: S.text,
-    outline: "none", boxSizing: "border-box",
-  };
-  const labelStyle: CSSProperties = {
-    fontSize: "11px", color: S.dim, textTransform: "uppercase",
-    letterSpacing: "0.5px", marginBottom: "4px",
-  };
-
-  const heading = (text: string) => (
-    <h2 style={{ fontSize: "20px", color: S.accent, fontWeight: 700, margin: "0 0 14px" }}>{text}</h2>
-  );
-  const card = (children: ReactNode) => (
-    <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>{children}</div>
-  );
-  const statBox = (label: string, value: string, color?: string) => (
-    <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "10px", textAlign: "center" }}>
-      <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: "2px" }}>{label}</div>
-      <div style={{ fontSize: "15px", color: color ?? S.gold, fontWeight: 700 }}>{value}</div>
-    </div>
-  );
-  const pillBtn = (label: string, active: boolean, onClick: () => void) => (
-    <button key={label} onClick={onClick} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: active ? "2px solid " + S.accent : "1px solid " + S.border, background: active ? S.hl : S.card, color: active ? S.accent : S.dim }}>
-      {label}
-    </button>
-  );
-  const counterBtn = (onClick: () => void, label: string) => (
-    <button onClick={onClick} style={{ width: "28px", height: "28px", borderRadius: "6px", border: "1px solid " + S.border, background: S.card, color: S.text, cursor: "pointer", fontSize: "15px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      {label}
-    </button>
-  );
-
-  const pColor = (pk: PlotKey) => pk === "2x" ? S.blue : pk === "1x" ? S.green : "#D97706";
-  const gr = grindResult;
-
-  // ── Timer Widget ──
-  const TimerWidget = () => {
-    if (timerDone) return (
-      <div style={{ background: S.ok, border: "2px solid " + S.okB, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
-        <div style={{ fontSize: "18px", fontWeight: 800, color: S.green, marginBottom: "6px" }}>TIME'S UP! GO SELL!</div>
-        <div style={{ fontSize: "13px", color: S.text, marginBottom: "10px" }}>You should have enough gasoline now.</div>
-        <button onClick={stopTimer} style={{ padding: "8px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "none", background: S.green, color: "#fff" }}>Dismiss</button>
-      </div>
-    );
-    if (timerRunning) return (
-      <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
-        <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>TIMER RUNNING</div>
-        <div style={{ fontSize: "36px", fontWeight: 800, color: S.accent, fontFamily: "monospace" }}>
-          {Math.floor(timerRemaining / 3600) > 0 ? Math.floor(timerRemaining / 3600) + ":" : ""}
-          {String(Math.floor((timerRemaining % 3600) / 60)).padStart(2, "0")}:{String(timerRemaining % 60).padStart(2, "0")}
-        </div>
-        <div style={{ fontSize: "11px", color: S.dim, marginTop: "4px", marginBottom: "10px" }}>Alarm will sound when done</div>
-        <button onClick={stopTimer} style={{ padding: "6px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Cancel</button>
-      </div>
-    );
-    if (!gr.canAfford && gr.timeSeconds > 0) return (
-      <div style={{ textAlign: "center" }}>
-        <button onClick={() => startTimer(gr.timeSeconds)} style={{ padding: "10px 24px", borderRadius: "10px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff", width: "100%" }}>
-          Set Timer — {formatTime(gr.timeSeconds)}
-        </button>
-        <div style={{ fontSize: "11px", color: S.dim, marginTop: "4px" }}>Alarm sounds when you can afford it</div>
-      </div>
-    );
-    return null;
-  };
-
-  // ── Calc Tab ──
-  const CalcTab = () => (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {heading("Grind Calculator")}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Production (/s)</div>
-          <input style={inputStyle} type="number" value={production} onChange={e => setProduction(e.target.value)} placeholder="0" />
-        </div>
-        <div>
-          <div style={labelStyle}>Sell Rate ($)</div>
-          <input style={inputStyle} type="number" value={sellRate} onChange={e => setSellRate(e.target.value)} placeholder="0" />
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Gasoline (B)</div>
-          <input style={inputStyle} type="number" value={gasoline} onChange={e => setGasoline(e.target.value)} placeholder="0" />
-        </div>
-        <div>
-          <div style={labelStyle}>Cash (B)</div>
-          <input style={inputStyle} type="number" value={cash} onChange={e => setCash(e.target.value)} placeholder="0" />
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Cash Boost (%)</div>
-          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="285" />
-        </div>
-        <div>
-          <div style={labelStyle}>Refinery Capacity</div>
-          <select value={refCap} onChange={e => setRefCap(parseInt(e.target.value))} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
-            {REFINERY_PRESETS.map(v => <option key={v} value={v}>{formatRefCap(v)}</option>)}
-          </select>
-        </div>
-      </div>
-      <div>
-        <div style={labelStyle}>Saving For</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
-          {allTargets.map((t) => (
-            <div key={t.id} style={{ position: "relative", display: "inline-flex" }}>
-              <button onClick={() => setTarget(t.id)} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: target === t.id ? "2px solid " + S.accent : "1px solid " + S.border, background: target === t.id ? S.hl : S.card, color: target === t.id ? S.accent : S.dim, paddingRight: t.id.startsWith("custom_") ? "24px" : "12px" }}>
-                {t.n}
-              </button>
-              {t.id.startsWith("custom_") && (
-                <button onClick={e => { e.stopPropagation(); deleteTarget(t.id); }} style={{ position: "absolute", right: "2px", top: "50%", transform: "translateY(-50%)", width: "16px", height: "16px", borderRadius: "50%", border: "none", background: "transparent", color: S.red, cursor: "pointer", fontSize: "10px", fontWeight: 800 }}>x</button>
-              )}
-            </div>
-          ))}
-          <button onClick={() => setShowAddTarget(!showAddTarget)} style={{ padding: "6px 10px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.green }}>+</button>
-        </div>
-        {showAddTarget && (
-          <div style={{ marginTop: "8px", display: "flex", gap: "6px", alignItems: "flex-end" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Name</div>
-              <input style={{ ...inputStyle, padding: "8px 10px", fontSize: "12px" }} value={newTargetName} onChange={e => setNewTargetName(e.target.value)} placeholder="e.g. 2nd Ruby" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Cost (B)</div>
-              <input style={{ ...inputStyle, padding: "8px 10px", fontSize: "12px" }} type="number" value={newTargetCost} onChange={e => setNewTargetCost(e.target.value)} placeholder="e.g. 85.5" />
-            </div>
-            <button onClick={addTarget} style={{ padding: "8px 14px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "none", background: S.accent, color: "#fff", whiteSpace: "nowrap" }}>Add</button>
-          </div>
-        )}
-      </div>
-      <div style={{ height: "1px", background: S.border }} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-        {statBox("Cost",       "$" + formatNum(gr.targetCost))}
-        {statBox("Gas Needed", formatNum(gr.gasNeeded),           S.blue)}
-        {statBox("Eff. Rate",  "$" + gr.effectiveRate.toFixed(2))}
-      </div>
-      <div style={{ background: gr.canAfford ? S.ok : S.hl, border: "2px solid " + (gr.canAfford ? S.okB : S.border), borderRadius: "12px", padding: "18px", textAlign: "center" }}>
-        {gr.canAfford ? (
-          <div>
-            <div style={{ fontSize: "14px", color: S.green, fontWeight: 700, marginBottom: "4px" }}>YOU CAN AFFORD IT!</div>
-            <div style={{ fontSize: "12px", color: S.text }}>Total: ${formatNum(gr.totalCash)}</div>
-            <div style={{ fontSize: "12px", color: S.dim, marginTop: "2px" }}>Leftover: ${formatNum(Math.max(0, gr.totalCash - gr.targetCost))}</div>
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800, marginBottom: "4px" }}>{formatTime(gr.timeSeconds)}</div>
-            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "10px" }}>until you can afford it</div>
-            <div style={{ width: "100%", height: "8px", background: S.pBg, borderRadius: "4px", overflow: "hidden", marginBottom: "10px" }}>
-              <div style={{ width: gr.pct + "%", height: "100%", background: S.pFill, borderRadius: "4px", transition: "width 0.6s ease" }} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-              <div style={{ background: S.card, borderRadius: "8px", padding: "8px", border: "1px solid " + S.border }}>
-                <div style={{ fontSize: "10px", color: S.dim }}>GAS LEFT</div>
-                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatNum(gr.remaining)}</div>
-              </div>
-              <div style={{ background: S.card, borderRadius: "8px", padding: "8px", border: "1px solid " + S.border }}>
-                <div style={{ fontSize: "10px", color: S.dim }}>PROGRESS</div>
-                <div style={{ fontSize: "14px", color: S.accent, fontWeight: 700 }}>{gr.pct.toFixed(1)}%</div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <TimerWidget />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
-        {statBox("Refinery (" + formatRefCap(refCap) + ")", formatTime(gr.refineryFill), S.blue)}
-        {statBox("Gas Value",  "$" + formatNum(gr.gasValue),                              S.green)}
-        {statBox("Income",     "$" + formatNum(gr.p * gr.effectiveRate) + "/s",           S.accent)}
-      </div>
-
-      {/* Savings Calculator */}
-      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px" }}>
-        <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "10px" }}>SAVINGS CALCULATOR</div>
-        <div>
-          <div style={labelStyle}>Minutes of grinding</div>
-          <input style={inputStyle} type="number" value={savingsMinutes} onChange={e => setSavingsMinutes(e.target.value)} placeholder="e.g. 30" />
-        </div>
-        {savingsResult ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px" }}>
-            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Gas Produced</div>
-              <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatNum(savingsResult.gasProduced)}</div>
-            </div>
-            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Cash Earned</div>
-              <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>${formatNum(savingsResult.cashEarned)}</div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", marginTop: "10px" }}>
-            Enter minutes + production + sell rate to calculate
-          </div>
-        )}
-      </div>
-
-      {card(
-        <div>
-          <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>QUICK REFERENCE</div>
-          {allTargets.map((x, i) => {
-            const cost = x.c * 1e9;
-            const g    = gr.effectiveRate > 0 ? cost / gr.effectiveRate : 0;
-            const t    = gr.p > 0 && gr.effectiveRate > 0 ? g / gr.p : 0;
-            return (
-              <div key={x.id} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "6px 0", borderBottom: i < allTargets.length - 1 ? "1px solid " + S.border : "none" }}>
-                <span style={{ color: S.text, fontWeight: 500 }}>{x.n}</span>
-                <span style={{ color: S.dim }}>{formatNum(g)} gas</span>
-                <span style={{ color: S.blue, fontWeight: 600 }}>{formatTime(t)}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-
-  // ── Inventory Tab ──
-  const toggleMachine = (type: "large" | "small", name: string) => {
-    setVisibleMachines((prev) => ({ ...prev, [type]: { ...prev[type], [name]: !prev[type][name] } }));
-  };
-
-  const visLarge = machines.large.filter((m) => visibleMachines.large?.[m.name]);
-  const visSmall = machines.small.filter((m) => visibleMachines.small?.[m.name]);
-
-  const InventoryTab = () => {
-    const renderPlot = (plotKey: PlotKey) => {
-      const data = invResult[plotKey];
-      const cfg  = plotCfg[plotKey];
-      return (
-        <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
-          <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span></div>
-            <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
-          </div>
-          <div style={{ padding: "10px 14px" }}>
-            {visLarge.length > 0 && (<>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
-                <span style={{ fontSize: "11px", color: data.largeOver ? S.red : S.dim, fontWeight: 600 }}>LARGE: {data.largeCount}/{data.maxLarge}{data.largeOver ? " OVER!" : ""}</span>
-                <span style={{ fontSize: "11px", color: S.dim }}>{data.largeProd.toLocaleString()}/s</span>
-              </div>
-              {visLarge.map((m, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
-                  <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name}</span>
-                  <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" }}>{(m.base * data.mult).toLocaleString()}/s</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
-                    {counterBtn(() => updateInventory(plotKey, "large", m.name, -1), "-")}
-                    <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" }}>{inventory[plotKey]?.large?.[m.name] ?? 0}</span>
-                    {counterBtn(() => updateInventory(plotKey, "large", m.name, +1), "+")}
-                  </div>
-                </div>
-              ))}
-            </>)}
-            {visSmall.length > 0 && (<>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: visLarge.length > 0 ? "12px" : "0", marginBottom: "6px" }}>
-                <span style={{ fontSize: "11px", color: data.smallOver ? S.red : S.dim, fontWeight: 600 }}>TILES: {data.smallTiles}/{data.maxSmallTiles}{data.smallOver ? " OVER!" : ""}</span>
-                <span style={{ fontSize: "11px", color: S.dim }}>{data.smallProd.toLocaleString()}/s</span>
-              </div>
-              {visSmall.map((m, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "center", padding: "5px 0", borderBottom: "1px solid " + S.border, gap: "4px" }}>
-                  <span style={{ fontSize: "12px", color: S.text, flex: 2 }}>{m.name} <span style={{ color: S.dim, fontSize: "10px" }}>({m.size})</span></span>
-                  <span style={{ fontSize: "11px", color: S.dim, flex: 1, textAlign: "center" }}>{(m.base * data.mult).toLocaleString()}/s</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flex: 1, justifyContent: "flex-end" }}>
-                    {counterBtn(() => updateInventory(plotKey, "small", m.name, -1), "-")}
-                    <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent, minWidth: "20px", textAlign: "center" }}>{inventory[plotKey]?.small?.[m.name] ?? 0}</span>
-                    {counterBtn(() => updateInventory(plotKey, "small", m.name, +1), "+")}
-                  </div>
-                </div>
-              ))}
-            </>)}
-            {visLarge.length === 0 && visSmall.length === 0 && (
-              <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", padding: "16px 0" }}>No machines selected. Tap the gear icon to manage.</div>
-            )}
-          </div>
-        </div>
-      );
-    };
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {heading("Machine Inventory")}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <button onClick={() => setShowManage(true)} style={{ padding: "6px 10px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>⚙</button>
-            <span style={{ color: S.dim, fontSize: "12px" }}>{visLarge.length + visSmall.length} machines shown</span>
-          </div>
-          <button onClick={() => setInventory(makeEmptyInventory())} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Reset</button>
-        </div>
-        {showManage && (
-          <div style={{ background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-              <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>Manage machines</span>
-              <button onClick={() => setShowManage(false)} style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Done</button>
-            </div>
-            <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginBottom: "6px" }}>LARGE (2×2)</div>
-            {machines.large.map((m, i) => (
-              <div key={i} onClick={() => toggleMachine("large", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-                <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.large?.[m.name] ? S.accent : S.border), background: visibleMachines.large?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {visibleMachines.large?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
-                </div>
-                <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
-                <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.base}/s base</span>
-              </div>
-            ))}
-            <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginTop: "12px", marginBottom: "6px" }}>SMALL</div>
-            {machines.small.map((m, i) => (
-              <div key={i} onClick={() => toggleMachine("small", m.name)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-                <div style={{ width: "20px", height: "20px", borderRadius: "4px", border: "2px solid " + (visibleMachines.small?.[m.name] ? S.accent : S.border), background: visibleMachines.small?.[m.name] ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {visibleMachines.small?.[m.name] && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
-                </div>
-                <span style={{ fontSize: "13px", color: S.text }}>{m.name}</span>
-                <span style={{ fontSize: "11px", color: S.dim, marginLeft: "auto" }}>{m.size} · {m.base}/s</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
-          <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "4px" }}>ESTIMATED TOTAL PRODUCTION</div>
-          <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800 }}>{invResult.grandTotal.toLocaleString()}/s</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginTop: "10px" }}>
-            {PLOTS.map(p => (
-              <div key={p} style={{ background: S.card, borderRadius: "6px", padding: "6px", border: "1px solid " + S.border }}>
-                <div style={{ fontSize: "10px", color: S.dim }}>{p}</div>
-                <div style={{ fontSize: "12px", color: pColor(p), fontWeight: 700 }}>{invResult[p].totalProd.toLocaleString()}/s</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        {PLOTS.map(renderPlot)}
-      </div>
-    );
-  };
-
-  // ── Compare Tab ──
-  const CompareTab = () => {
-    const m1   = machines.large[parseInt(compFrom)] ?? machines.large[0];
-    const m2   = machines.large[parseInt(compTo)]   ?? machines.large[1];
-    const prod1 = m1.base * compPlot, prod2 = m2.base * compPlot, gain = prod2 - prod1;
-    const effectiveRate  = (parseFloat(sellRate) || 15) * boostMultiplier;
-    const gasForUpgrade  = effectiveRate > 0 ? m2.cost / effectiveRate : 0;
-    const timeForUpgrade = (parseFloat(production) || 1) > 0 ? gasForUpgrade / (parseFloat(production) || 1) : 0;
-    const roiSeconds     = gain > 0 && effectiveRate > 0 ? m2.cost / (gain * effectiveRate) : 0;
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        {heading("Compare Machines")}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-          <div>
-            <div style={labelStyle}>Current</div>
-            <select value={compFrom} onChange={e => setCompFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <div style={labelStyle}>Upgrade</div>
-            <select value={compTo} onChange={e => setCompTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-              {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <div style={labelStyle}>Plot</div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {[1, 2, 3].map(m => pillBtn(m + "x", compPlot === m, () => setCompPlot(m)))}
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-          <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: S.dim }}>{m1.name}</div>
-            <div style={{ fontSize: "20px", color: S.text, fontWeight: 700 }}>{prod1.toLocaleString()}/s</div>
-            <div style={{ fontSize: "12px", color: S.dim }}>{m1.costLabel}</div>
-          </div>
-          <div style={{ background: S.hl, border: "1px solid " + S.accent, borderRadius: "10px", padding: "14px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: S.accent }}>{m2.name}</div>
-            <div style={{ fontSize: "20px", color: S.accent, fontWeight: 700 }}>{prod2.toLocaleString()}/s</div>
-            <div style={{ fontSize: "12px", color: S.dim }}>{m2.costLabel}</div>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-          {statBox("Gain", "+" + gain.toLocaleString() + "/s", gain > 0 ? S.green : S.red)}
-          {statBox("Cost", "$" + formatNum(m2.cost))}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-          {statBox("Time to Buy",  formatTime(timeForUpgrade), S.blue)}
-          {statBox("ROI Payback",  formatTime(roiSeconds),     S.accent)}
-        </div>
-        {gain > 0 && roiSeconds > 0 && (
-          <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", fontStyle: "italic" }}>
-            Upgrade pays for itself in {formatTime(roiSeconds)} of extra production
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const clearAllData = () => {
     if (!confirm("Reset all saved data? This clears everything.")) return;
     Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX)).forEach(k => localStorage.removeItem(k));
     window.location.reload();
   };
 
-  // ── Formulas Tab ──
-  const FormulasTab = () => (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {heading("Formulas")}
-      {formulasList.map((f, i) => (
-        <div key={i} style={{ padding: "12px", background: S.card, border: "1px solid " + S.border, borderRadius: "10px" }}>
-          <div style={{ fontSize: "13px", color: S.gold, fontWeight: 700, marginBottom: "4px" }}>{f.name}</div>
-          <div style={{ fontSize: "13px", color: S.blue, fontFamily: "monospace", marginBottom: "4px" }}>{f.formula}</div>
-          <div style={{ fontSize: "11px", color: S.dim }}>{f.example}</div>
-        </div>
-      ))}
-      <div style={{ marginTop: "10px", paddingTop: "14px", borderTop: "1px solid " + S.border }}>
-        <button onClick={clearAllData} style={{ padding: "10px 20px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.red, background: "transparent", color: S.red, width: "100%" }}>
-          Reset All Saved Data
-        </button>
-        <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", marginTop: "4px" }}>Clears calculator, inventory, targets, and theme</div>
-      </div>
-    </div>
-  );
-
-  // ── Upgrade Path ──
-  const upgFromIdx = parseInt(upgFrom);
-  const upgToIdx   = parseInt(upgTo);
-  const upgEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
-  const upgProd          = parseFloat(production) || 0;
-
-  interface UpgradeStep {
-    from: LargeMachine; to: LargeMachine;
-    gasNeeded: number; timeS: number;
-    cumulativeCost: number; cumulativeTime: number; prodGain: number;
-  }
-
-  const upgradePath = useMemo<UpgradeStep[]>(() => {
-    if (upgFromIdx >= upgToIdx) return [];
-    const steps: UpgradeStep[] = [];
-    let cumulativeCost = 0, cumulativeTime = 0;
-    for (let i = upgFromIdx; i < upgToIdx; i++) {
-      const current = machines.large[i];
-      const next    = machines.large[i + 1];
-      const gasNeeded = upgEffectiveRate > 0 ? next.cost / upgEffectiveRate : 0;
-      const timeS     = upgProd > 0 ? gasNeeded / upgProd : 0;
-      cumulativeCost += next.cost;
-      cumulativeTime += timeS;
-      steps.push({ from: current, to: next, gasNeeded, timeS, cumulativeCost, cumulativeTime, prodGain: next.base - current.base });
-    }
-    return steps;
-  }, [upgFromIdx, upgToIdx, upgEffectiveRate, upgProd]);
-
-  const upgTotalProdGain = upgToIdx > upgFromIdx ? machines.large[upgToIdx].base - machines.large[upgFromIdx].base : 0;
-
-  const UpgradeTab = () => (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {heading("Upgrade Path Planner")}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Start Drill</div>
-          <select value={upgFrom} onChange={e => setUpgFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
-            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={labelStyle}>Goal Drill</div>
-          <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
-            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-          </select>
-        </div>
-      </div>
-      {upgFromIdx >= upgToIdx ? (
-        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
-          Select a goal drill higher than your start drill.
-        </div>
-      ) : (
-        <>
-          <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
-            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" as const }}>Full Path Summary</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Total Cost</div>
-                <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum(upgradePath[upgradePath.length - 1]?.cumulativeCost ?? 0)}</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Total Time</div>
-                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime(upgradePath[upgradePath.length - 1]?.cumulativeTime ?? 0)}</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Prod Gain</div>
-                <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>+{upgTotalProdGain.toLocaleString()}/s</div>
-              </div>
-            </div>
-            {(!upgProd || !upgEffectiveRate) && (
-              <div style={{ marginTop: "8px", fontSize: "11px", color: S.dim, textAlign: "center" }}>
-                ⚠ Enter Production & Sell Rate in Calc tab for time estimates
-              </div>
-            )}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {upgradePath.map((step, i) => (
-              <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
-                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
-                    <span style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{step.from.name} → {step.to.name}</span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: S.accent, fontWeight: 700 }}>{step.to.costLabel}</span>
-                </div>
-                <div style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Gas Needed</div>
-                    <div style={{ fontSize: "13px", color: S.blue, fontWeight: 600 }}>{upgEffectiveRate > 0 ? formatNum(step.gasNeeded) : "--"}</div>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Grind Time</div>
-                    <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Prod Gain</div>
-                    <div style={{ fontSize: "13px", color: S.green, fontWeight: 600 }}>+{step.prodGain.toLocaleString()}/s</div>
-                  </div>
-                </div>
-                <div style={{ padding: "6px 12px 8px", borderTop: "1px solid " + S.border, display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "10px", color: S.dim }}>Running total: <span style={{ color: S.gold, fontWeight: 600 }}>${formatNum(step.cumulativeCost)}</span></span>
-                  <span style={{ fontSize: "10px", color: S.dim }}>Time so far: <span style={{ color: S.blue, fontWeight: 600 }}>{formatTime(step.cumulativeTime)}</span></span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-
-  // ── Optimizer ──
-  const optCfg         = plotCfg[optPlot];
-  const optMaxLarge    = optCfg.plots * optCfg.largePer;
-  const optMaxSmallTiles = optCfg.plots * optCfg.smallTiles;
-  const optEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
-  const optBudget      = (parseFloat(optBudgetB) || 0) * 1e9;
-
-  interface OptResult {
-    largeDrill: LargeMachine | null;
-    largeCount: number;
-    smallDrill: SmallMachine;
-    smallCount: number;
-    totalProd: number;
-    remainingBudget: number;
-    incomePerSec: number;
-  }
-
-  const optimized = useMemo<OptResult | null>(() => {
-    if (!optBudget) return null;
-    let remaining  = optBudget;
-    let largeDrill: LargeMachine | null = null;
-    let largeCount = 0;
-    let totalProd  = 0;
-    for (let i = machines.large.length - 1; i >= 0; i--) {
-      if (machines.large[i].cost <= remaining) {
-        largeDrill = machines.large[i];
-        largeCount = Math.min(optMaxLarge, Math.floor(remaining / largeDrill.cost));
-        remaining -= largeCount * largeDrill.cost;
-        break;
-      }
-    }
-    const sortedSmall = [...purchasableSmall].sort((a, b) => (b.base / b.tiles) - (a.base / a.tiles));
-    const smallDrill  = sortedSmall[0];
-    const smallCount  = Math.floor(optMaxSmallTiles / smallDrill.tiles);
-    if (largeDrill) totalProd += largeCount * largeDrill.base * optCfg.mult;
-    totalProd += smallCount * smallDrill.base * optCfg.mult;
-    return { largeDrill, largeCount, smallDrill, smallCount, totalProd, remainingBudget: remaining, incomePerSec: totalProd * optEffectiveRate };
-  }, [optBudget, optPlot, optEffectiveRate]);
-
-  interface RankedMachine extends LargeMachine { prodPerDollar: number; }
-  const rankedLarge = useMemo<RankedMachine[]>(() =>
-    [...machines.large].map(m => ({ ...m, prodPerDollar: m.base / m.cost })).sort((a, b) => b.prodPerDollar - a.prodPerDollar),
-  []);
-
-  const OptimizerTab = () => (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      {heading("Plot Optimizer")}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Plot Type</div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            {PLOTS.map(p => pillBtn(p, optPlot === p, () => setOptPlot(p)))}
-          </div>
-        </div>
-        <div>
-          <div style={labelStyle}>Budget (B)</div>
-          <input style={inputStyle} type="number" value={optBudgetB} onChange={e => setOptBudgetB(e.target.value)} placeholder="e.g. 500" />
-        </div>
-      </div>
-      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
-        <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border }}>
-          <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>LARGE DRILLS — VALUE RANKING</span>
-          <span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>prod per billion spent</span>
-        </div>
-        <div style={{ padding: "0 4px" }}>
-          {rankedLarge.map((m, i) => {
-            const isAffordable = optBudget > 0 && m.cost <= optBudget;
-            const isBest = i === 0;
-            return (
-              <div key={m.name} style={{ display: "flex", alignItems: "center", padding: "8px 10px", borderBottom: i < rankedLarge.length - 1 ? "1px solid " + S.border : "none", background: isBest ? S.ok : "transparent", gap: "6px" }}>
-                <span style={{ fontSize: "11px", fontWeight: 800, color: isBest ? S.green : S.dim, minWidth: "18px" }}>#{i + 1}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: "12px", color: S.text, fontWeight: isBest ? 700 : 400 }}>{m.name}</div>
-                  <div style={{ fontSize: "10px", color: S.dim }}>{m.costLabel} · {m.base}/s base</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: "12px", color: isBest ? S.green : S.accent, fontWeight: 700 }}>{(m.prodPerDollar * 1e9).toFixed(1)}/B</div>
-                  {optBudget > 0 && (
-                    <div style={{ fontSize: "10px", color: isAffordable ? S.green : S.red, fontWeight: 600 }}>
-                      {isAffordable ? "✓ in budget" : "✗ over budget"}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ fontSize: "11px", color: S.dim, fontStyle: "italic", textAlign: "center" }}>
-        ℹ️ Mini Diamond Drill &amp; Mini Multi Drill excluded — pack-exclusive, not purchasable
-      </div>
-      {optimized ? (
-        <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
-          <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "10px", textTransform: "uppercase" as const }}>Recommended Loadout — {optPlot} plot</div>
-          {optimized.largeDrill ? (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid " + S.border, marginBottom: "8px" }}>
-              <div>
-                <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{optimized.largeCount}× {optimized.largeDrill.name}</div>
-                <div style={{ fontSize: "11px", color: S.dim }}>Large · {optimized.largeCount}/{optMaxLarge} slots · ${formatNum(optimized.largeDrill.cost)} each</div>
-              </div>
-              <div style={{ fontSize: "13px", color: S.blue, fontWeight: 700 }}>
-                {(optimized.largeCount * optimized.largeDrill.base * optCfg.mult).toLocaleString()}/s
-              </div>
-            </div>
-          ) : (
-            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "8px" }}>No large drill affordable — increase budget.</div>
-          )}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid " + S.border, marginBottom: "10px" }}>
-            <div>
-              <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{optimized.smallCount}× {optimized.smallDrill.name}</div>
-              <div style={{ fontSize: "11px", color: S.dim }}>Small · {optimized.smallDrill.size} · fills {optMaxSmallTiles} tiles</div>
-            </div>
-            <div style={{ fontSize: "13px", color: S.green, fontWeight: 700 }}>
-              {(optimized.smallCount * optimized.smallDrill.base * optCfg.mult).toLocaleString()}/s
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Total Prod</div>
-              <div style={{ fontSize: "14px", color: S.accent, fontWeight: 800 }}>{optimized.totalProd.toLocaleString()}/s</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Budget Left</div>
-              <div style={{ fontSize: "14px", color: optimized.remainingBudget > 0 ? S.green : S.dim, fontWeight: 700 }}>${formatNum(optimized.remainingBudget)}</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase" as const, marginBottom: "2px" }}>Income/s</div>
-              <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{optEffectiveRate > 0 ? "$" + formatNum(optimized.incomePerSec) : "--"}</div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "12px", color: S.dim }}>
-          Enter a budget above to see your optimal loadout recommendation.
-        </div>
-      )}
-    </div>
-  );
-
-  // ── Theme picker ──
+  // Theme picker ref
   const themeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!showThemes) return;
@@ -1111,17 +1314,6 @@ export default function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showThemes]);
-
-  const renderTab: Record<TabKey, () => JSX.Element> = {
-    Calc:      CalcTab,
-    Inventory: InventoryTab,
-    Compare:   CompareTab,
-    Upgrade:   UpgradeTab,
-    Optimizer: OptimizerTab,
-    Formulas:  FormulasTab,
-  };
-
-  const ActiveTab = renderTab[tab] ?? CalcTab;
 
   return (
     <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
@@ -1152,7 +1344,70 @@ export default function App() {
         </div>
       </div>
       <div style={{ padding: "16px", maxWidth: "560px", margin: "0 auto" }}>
-        <ActiveTab />
+        {tab === "Calc" && (
+          <CalcTab
+            S={S}
+            production={production} setProduction={setProduction}
+            sellRate={sellRate} setSellRate={setSellRate}
+            gasoline={gasoline} setGasoline={setGasoline}
+            cash={cash} setCash={setCash}
+            cashBoost={cashBoost} setCashBoost={setCashBoost}
+            refCap={refCap} setRefCap={setRefCap}
+            savingsMinutes={savingsMinutes} setSavingsMinutes={setSavingsMinutes}
+            target={target} setTarget={setTarget}
+            allTargets={allTargets}
+            showAddTarget={showAddTarget} setShowAddTarget={setShowAddTarget}
+            newTargetName={newTargetName} setNewTargetName={setNewTargetName}
+            newTargetCost={newTargetCost} setNewTargetCost={setNewTargetCost}
+            addTarget={addTarget} deleteTarget={deleteTarget}
+            grindResult={grindResult} savingsResult={savingsResult}
+            timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining}
+            onTimerStart={startTimer} onTimerStop={stopTimer}
+          />
+        )}
+        {tab === "Inventory" && (
+          <InventoryTab
+            S={S}
+            inventory={inventory}
+            invResult={invResult}
+            visibleMachines={visibleMachines}
+            showManage={showManage} setShowManage={setShowManage}
+            toggleMachine={toggleMachine}
+            updateInventory={updateInventory}
+            setInventory={setInventory}
+          />
+        )}
+        {tab === "Compare" && (
+          <CompareTab
+            S={S}
+            compFrom={compFrom} setCompFrom={setCompFrom}
+            compTo={compTo} setCompTo={setCompTo}
+            compPlot={compPlot} setCompPlot={setCompPlot}
+            sellRate={sellRate} production={production}
+            boostMultiplier={boostMultiplier}
+          />
+        )}
+        {tab === "Upgrade" && (
+          <UpgradeTab
+            S={S}
+            upgFrom={upgFrom} setUpgFrom={setUpgFrom}
+            upgTo={upgTo} setUpgTo={setUpgTo}
+            upgPlot={upgPlot} setUpgPlot={setUpgPlot}
+            sellRate={sellRate} production={production}
+            boostMultiplier={boostMultiplier}
+          />
+        )}
+        {tab === "Optimizer" && (
+          <OptimizerTab
+            S={S}
+            optPlot={optPlot} setOptPlot={setOptPlot}
+            optBudgetB={optBudgetB} setOptBudgetB={setOptBudgetB}
+            sellRate={sellRate} boostMultiplier={boostMultiplier}
+          />
+        )}
+        {tab === "Formulas" && (
+          <FormulasTab S={S} clearAllData={clearAllData} />
+        )}
       </div>
     </div>
   );
