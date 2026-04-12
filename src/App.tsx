@@ -43,7 +43,7 @@ const tileMap: Record<string, number> = Object.fromEntries(
 
 const plotCfg: Record<string, { label: string; plots: number; largePer: number; smallTiles: number; mult: number }> = {
   "2x": {
-    label: "2x Plots (3 plots)",
+    label: "2x (3 plots)",
     plots: 3,
     largePer: 4,
     smallTiles: 9,
@@ -57,8 +57,8 @@ const plotCfg: Record<string, { label: string; plots: number; largePer: number; 
     mult: 1,
   },
   "3x": {
-    label: "3x Plot (1 plot)",
-    plots: 1,
+    label: "3x (3 plots)",
+    plots: 3,
     largePer: 4,
     smallTiles: 9,
     mult: 3,
