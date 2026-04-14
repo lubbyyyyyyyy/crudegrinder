@@ -6,10 +6,10 @@
 import { useState, useMemo, useEffect, useRef, ReactNode, CSSProperties } from "react";
 
 // ── Constants ──
-const PLOTS = ["3x", "2x", "1x"] as const;
+const PLOTS = ["5x", "3x", "2x", "1x"] as const;
 type PlotKey = typeof PLOTS[number];
 
-const TABS = ["Calc", "Inventory", "Compare", "Upgrade", "Optimizer", "Formulas"] as const;
+const TABS = ["Calc", "Inventory", "Compare", "Upgrade", "Optimizer", "Guide"] as const;
 type TabKey = typeof TABS[number];
 
 const LS_PREFIX = "cg_";
@@ -84,9 +84,33 @@ interface PlotCfg {
 const plotCfg: Record<PlotKey, PlotCfg> = {
   "2x": { label: "2x (3 plots)", plots: 3, largePer: 4, smallTiles: 9, mult: 2 },
   "1x": { label: "1x (6 plots)", plots: 6, largePer: 4, smallTiles: 9, mult: 1 },
-  "3x": { label: "3x (3 plots)", plots: 3, largePer: 4, smallTiles: 9, mult: 3 },
+  "3x": { label: "3x (2 plots)", plots: 2, largePer: 4, smallTiles: 9, mult: 3 },
+  "5x": { label: "5x (1 plot)",  plots: 1, largePer: 4, smallTiles: 9, mult: 5 },
 };
 
+
+const plotCosts: Record<PlotKey, string[]> = {
+  "1x": ["Free", "Free", "Free", "Free", "Free", "Free"],
+  "2x": ["$2.5M", "$100M", "$500M"],
+  "3x": ["$100B", "$1T"],
+  "5x": ["$99T"],
+};
+
+// "What should I buy next" milestones
+const buyNextMilestones: { maxProd: number; suggestion: string }[] = [
+  { maxProd: 50,     suggestion: "Buy all 3x 2x plots ($2.5M, $100M, $500M) — everything produces double there" },
+  { maxProd: 500,    suggestion: "Fill 2x plots with best drills you can afford. Plasma Drill ($4.5M) is solid early game" },
+  { maxProd: 5000,   suggestion: "Save for Huge Long Drills ($39.6M) on 2x plots — first large machine, 440/s each on 2x" },
+  { maxProd: 15000,  suggestion: "Upgrade to Lava Drills ($900M) on 2x — 1,200/s each on 2x, big jump in production" },
+  { maxProd: 30000,  suggestion: "Save for Ice Plasma Drills ($2.4B) on 2x — 1,600/s each on 2x" },
+  { maxProd: 60000,  suggestion: "Save for Crystal Drills ($9B) on 2x — 3,000/s each. Fill all 12 large slots on 2x" },
+  { maxProd: 100000, suggestion: "Buy 3x plot ($100B) then fill with Diamond Drills ($27.5B) — 8,250/s each on 3x" },
+  { maxProd: 150000, suggestion: "Upgrade to Ruby Drills ($85.5B) on 3x plots — 13,500/s each on 3x" },
+  { maxProd: 200000, suggestion: "Ruby Drills on 2x plots — cascade old Diamonds to 1x plots for free production" },
+  { maxProd: 300000, suggestion: "Fill remaining 1x plots with Ruby Drills. Save for Fusion Drills ($187.5B) on 3x" },
+  { maxProd: 500000, suggestion: "Save for $1T plot, then fill with Fusion Drills. Endgame approaching!" },
+  { maxProd: Infinity, suggestion: "Save for 5x plot ($99T) — the ultimate multiplier. Fill with Fusion Drills for max production" },
+];
 interface Target {
   id: string;
   n: string;
@@ -149,6 +173,24 @@ function makeEmptyInventory(): InventoryState {
     machines.small.forEach((m) => (inv[plot].small[m.name] = 0));
   }
   return inv;
+}
+
+// Ensure saved inventory has all current plots and machines
+function migrateInventory(saved: InventoryState): InventoryState {
+  const fresh = makeEmptyInventory();
+  for (const plot of PLOTS) {
+    if (!saved[plot]) {
+      saved[plot] = fresh[plot];
+    } else {
+      for (const m of machines.large) {
+        if (saved[plot].large[m.name] === undefined) saved[plot].large[m.name] = 0;
+      }
+      for (const m of machines.small) {
+        if (saved[plot].small[m.name] === undefined) saved[plot].small[m.name] = 0;
+      }
+    }
+  }
+  return saved;
 }
 
 // ── GrindResult ──
@@ -222,11 +264,13 @@ function calcInventory(inv: InventoryState): InvResult {
     const maxLarge      = cfg.plots * cfg.largePer;
     const maxSmallTiles = cfg.plots * cfg.smallTiles;
     let largeCount = 0, largeProd = 0, smallTiles = 0, smallProd = 0;
-    for (const [name, count] of Object.entries(inv[plot].large)) {
+    const plotLarge = inv[plot]?.large ?? {};
+    const plotSmall = inv[plot]?.small ?? {};
+    for (const [name, count] of Object.entries(plotLarge)) {
       largeCount += count;
       largeProd  += count * (baseMap[name] ?? 0) * cfg.mult;
     }
-    for (const [name, count] of Object.entries(inv[plot].small)) {
+    for (const [name, count] of Object.entries(plotSmall)) {
       smallTiles += count * (tileMap[name] ?? 1);
       smallProd  += count * (baseMap[name] ?? 0) * cfg.mult;
     }
@@ -239,11 +283,15 @@ function calcInventory(inv: InventoryState): InvResult {
 }
 
 // ── Persistent State Hook ──
-function useSaved<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+function useSaved<T>(key: string, defaultValue: T, migrate?: (val: any) => T): [T, React.Dispatch<React.SetStateAction<T>>] {
   const [val, setVal] = useState<T>(() => {
     try {
       const stored = localStorage.getItem(LS_PREFIX + key);
-      return stored !== null ? (JSON.parse(stored) as T) : defaultValue;
+      if (stored !== null) {
+        const parsed = JSON.parse(stored) as T;
+        return migrate ? migrate(parsed) : parsed;
+      }
+      return defaultValue;
     } catch { return defaultValue; }
   });
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -282,11 +330,12 @@ interface Theme {
 }
 
 const themes: Record<string, Theme> = {
-  dark:     { name: "Dark",     emoji: "🌙", bg: "#0D0D0D",  card: "rgba(255,255,255,0.04)", border: "rgba(255,165,0,0.12)",  accent: "#FFB347", gold: "#FFD580", text: "#ccc",    dim: "#888",    green: "#7FFF7F", blue: "#5FC5FF", red: "#FF6B6B", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(255,165,0,0.25)", hl: "rgba(255,165,0,0.08)",        hdr: "linear-gradient(135deg,rgba(255,165,0,0.12),rgba(255,50,0,0.06))", nav: "rgba(0,0,0,0.3)",    alt: "rgba(255,165,0,0.02)",       ok: "rgba(127,255,127,0.08)", okB: "rgba(127,255,127,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#FFB347,#FF8C00)" },
+  dark:     { name: "Dark",     emoji: "🌙", bg: "#0D0D0D",  card: "rgba(255,255,255,0.04)", border: "rgba(255,165,0,0.12)",  accent: "#FFB347", gold: "#FFD580", text: "#ccc",    dim: "#888",    green: "#7FFF7F", blue: "#5FC5FF", red: "#FF6B6B", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(255,165,0,0.25)", hl: "rgba(255,165,0,0.08)",        hdr: "linear-gradient(135deg,#1A1000,#140800)", nav: "#0D0D0D",    alt: "rgba(255,165,0,0.02)",       ok: "rgba(127,255,127,0.08)", okB: "rgba(127,255,127,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#FFB347,#FF8C00)" },
   cherry:   { name: "Cherry",   emoji: "🌸", bg: "#FFF0F3",  card: "#FFF",                   border: "#FECDD3",               accent: "#BE123C", gold: "#9F1239", text: "#4C0519", dim: "#FDA4AF", green: "#15803D", blue: "#BE185D", red: "#E11D48", inputBg: "#FFF",                   inputBorder: "#FECDD3",             hl: "#FFE4E6",                     hdr: "linear-gradient(135deg,#FFE4E6,#FECDD3)",                          nav: "#FFF1F2",            alt: "#FFF1F2",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#FECDD3",               pFill: "linear-gradient(90deg,#F43F5E,#BE123C)" },
   ocean:    { name: "Ocean",    emoji: "🌊", bg: "#F0F9FF",  card: "#FFF",                   border: "#BAE6FD",               accent: "#0369A1", gold: "#0C4A6E", text: "#0C4A6E", dim: "#7DD3FC", green: "#15803D", blue: "#0284C7", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BAE6FD",             hl: "#E0F2FE",                     hdr: "linear-gradient(135deg,#E0F2FE,#BAE6FD)",                          nav: "#F0F9FF",            alt: "#F0F9FF",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#BAE6FD",               pFill: "linear-gradient(90deg,#0EA5E9,#0369A1)" },
   forest:   { name: "Forest",   emoji: "🌲", bg: "#F0FDF4",  card: "#FFF",                   border: "#BBF7D0",               accent: "#15803D", gold: "#14532D", text: "#14532D", dim: "#86EFAC", green: "#15803D", blue: "#166534", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BBF7D0",             hl: "#DCFCE7",                     hdr: "linear-gradient(135deg,#DCFCE7,#BBF7D0)",                          nav: "#F0FDF4",            alt: "#F0FDF4",                    ok: "#DCFCE7",                okB: "#86EFAC",               pBg: "#BBF7D0",               pFill: "linear-gradient(90deg,#22C55E,#15803D)" },
-  midnight: { name: "Midnight", emoji: "🌌", bg: "#0F172A",  card: "rgba(255,255,255,0.05)", border: "rgba(99,102,241,0.2)",  accent: "#818CF8", gold: "#A5B4FC", text: "#CBD5E1", dim: "#64748B", green: "#4ADE80", blue: "#60A5FA", red: "#F87171", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(99,102,241,0.3)", hl: "rgba(99,102,241,0.1)",        hdr: "linear-gradient(135deg,rgba(99,102,241,0.15),rgba(139,92,246,0.1))", nav: "rgba(0,0,0,0.3)",  alt: "rgba(99,102,241,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#818CF8,#6366F1)" },
+  midnight: { name: "Midnight", emoji: "🌌", bg: "#0F172A",  card: "rgba(255,255,255,0.05)", border: "rgba(99,102,241,0.2)",  accent: "#818CF8", gold: "#A5B4FC", text: "#CBD5E1", dim: "#64748B", green: "#4ADE80", blue: "#60A5FA", red: "#F87171", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(99,102,241,0.3)", hl: "rgba(99,102,241,0.1)",        hdr: "linear-gradient(135deg,#161B2E,#141832)", nav: "#0F172A",  alt: "rgba(99,102,241,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#818CF8,#6366F1)" },
+  crimson:  { name: "Crimson",  emoji: "🔴", bg: "#2A0A0A",  card: "rgba(0,0,0,0.3)",        border: "rgba(239,68,68,0.2)",   accent: "#FCA5A5", gold: "#FECACA", text: "#F5F5F5", dim: "#9B5555", green: "#4ADE80", blue: "#FCA5A5", red: "#EF4444", inputBg: "rgba(0,0,0,0.3)",        inputBorder: "rgba(239,68,68,0.3)",  hl: "rgba(239,68,68,0.12)",        hdr: "linear-gradient(135deg,#3B0A0A,#1A0505)", nav: "#2A0A0A",  alt: "rgba(239,68,68,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#EF4444,#991B1B)" },
 };
 
 // ── Visible machines state ──
@@ -338,7 +387,7 @@ function CounterBtn({ onClick, label, S }: { onClick: () => void; label: string;
     </button>
   );
 }
-function pColor(pk: PlotKey, S: Theme) { return pk === "2x" ? S.blue : pk === "1x" ? S.green : "#D97706"; }
+function pColor(pk: PlotKey, S: Theme) { return pk === "5x" ? "#9333EA" : pk === "3x" ? "#D97706" : pk === "2x" ? S.blue : S.green; }
 
 // ── Timer Widget (top-level component) ──
 interface TimerWidgetProps {
@@ -346,11 +395,12 @@ interface TimerWidgetProps {
   timerDone: boolean;
   timerRunning: boolean;
   timerRemaining: number;
+  timerTotal: number;
   grindTimeSeconds: number;
   onStart: (secs: number) => void;
   onStop: () => void;
 }
-function TimerWidget({ S, timerDone, timerRunning, timerRemaining, grindTimeSeconds, onStart, onStop }: TimerWidgetProps) {
+function TimerWidget({ S, timerDone, timerRunning, timerRemaining, timerTotal, grindTimeSeconds, onStart, onStop }: TimerWidgetProps) {
   if (timerDone) return (
     <div style={{ background: S.ok, border: "2px solid " + S.okB, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
       <div style={{ fontSize: "18px", fontWeight: 800, color: S.green, marginBottom: "6px" }}>TIME'S UP! GO SELL!</div>
@@ -358,13 +408,19 @@ function TimerWidget({ S, timerDone, timerRunning, timerRemaining, grindTimeSeco
       <button onClick={onStop} style={{ padding: "8px 20px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "none", background: S.green, color: "#fff" }}>Dismiss</button>
     </div>
   );
-  if (timerRunning) return (
-    <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
-      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>TIMER RUNNING</div>
-      <div style={{ fontSize: "28px", fontWeight: 800, color: S.accent, marginBottom: "10px" }}>{formatTime(timerRemaining)}</div>
-      <button onClick={onStop} style={{ padding: "6px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Cancel</button>
-    </div>
-  );
+  if (timerRunning) {
+    const elapsed = timerTotal > 0 ? Math.max(0, 100 - (timerRemaining / timerTotal) * 100) : 0;
+    return (
+      <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
+        <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>TIMER RUNNING</div>
+        <div style={{ fontSize: "28px", fontWeight: 800, color: S.accent, marginBottom: "8px" }}>{formatTime(timerRemaining)}</div>
+        <div style={{ width: "100%", height: "8px", background: S.pBg, borderRadius: "4px", overflow: "hidden", marginBottom: "10px" }}>
+          <div style={{ width: elapsed + "%", height: "100%", background: S.pFill, borderRadius: "4px", transition: "width 1s linear" }} />
+        </div>
+        <button onClick={onStop} style={{ padding: "6px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.red }}>Cancel</button>
+      </div>
+    );
+  }
   if (!grindTimeSeconds || grindTimeSeconds <= 0) return null;
   return (
     <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px", textAlign: "center" }}>
@@ -384,7 +440,6 @@ interface CalcTabProps {
   cash: string; setCash: (v: string) => void;
   cashBoost: string; setCashBoost: (v: string) => void;
   refCap: number; setRefCap: (v: number) => void;
-  savingsMinutes: string; setSavingsMinutes: (v: string) => void;
   target: string; setTarget: (v: string) => void;
   allTargets: Target[];
   showAddTarget: boolean; setShowAddTarget: (v: boolean) => void;
@@ -393,19 +448,18 @@ interface CalcTabProps {
   addTarget: () => void;
   deleteTarget: (id: string) => void;
   grindResult: GrindResult;
-  savingsResult: { gasProduced: number; cashEarned: number; secs: number } | null;
-  timerDone: boolean; timerRunning: boolean; timerRemaining: number;
+  timerDone: boolean; timerRunning: boolean; timerRemaining: number; timerTotal: number;
   onTimerStart: (s: number) => void; onTimerStop: () => void;
 }
 
 function CalcTab({
   S, production, setProduction, sellRate, setSellRate, gasoline, setGasoline,
   cash, setCash, cashBoost, setCashBoost, refCap, setRefCap,
-  savingsMinutes, setSavingsMinutes, target, setTarget,
+  target, setTarget,
   allTargets, showAddTarget, setShowAddTarget,
   newTargetName, setNewTargetName, newTargetCost, setNewTargetCost,
-  addTarget, deleteTarget, grindResult: gr, savingsResult,
-  timerDone, timerRunning, timerRemaining, onTimerStart, onTimerStop,
+  addTarget, deleteTarget, grindResult: gr,
+  timerDone, timerRunning, timerRemaining, timerTotal, onTimerStart, onTimerStop,
 }: CalcTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
   return (
@@ -505,34 +559,20 @@ function CalcTab({
           </div>
         )}
       </div>
-      <TimerWidget S={S} timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining} grindTimeSeconds={gr.timeSeconds} onStart={onTimerStart} onStop={onTimerStop} />
+      <TimerWidget S={S} timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining} timerTotal={timerTotal} grindTimeSeconds={gr.timeSeconds} onStart={onTimerStart} onStop={onTimerStop} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
         <StatBox label={"Refinery (" + formatRefCap(refCap) + ")"} value={formatTime(gr.refineryFill)} color={S.blue} S={S} />
         <StatBox label="Gas Value"  value={"$" + formatNum(gr.gasValue)}                              color={S.green} S={S} />
         <StatBox label="Income"     value={"$" + formatNum(gr.p * gr.effectiveRate) + "/s"}           color={S.accent} S={S} />
       </div>
-      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px" }}>
-        <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "10px" }}>SAVINGS CALCULATOR</div>
-        <div>
-          <div style={labelStyle}>Minutes of grinding</div>
-          <input style={inputStyle} type="number" value={savingsMinutes} onChange={e => setSavingsMinutes(e.target.value)} placeholder="e.g. 30" />
+      <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+        <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>WHAT SHOULD I BUY NEXT?</div>
+        <div style={{ fontSize: "13px", color: S.text, lineHeight: "1.6" }}>
+          {(() => {
+            const milestone = buyNextMilestones.find(m => gr.p < m.maxProd);
+            return milestone ? milestone.suggestion : "You're at endgame! Max out everything.";
+          })()}
         </div>
-        {savingsResult ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "10px" }}>
-            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Gas Produced</div>
-              <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatNum(savingsResult.gasProduced)}</div>
-            </div>
-            <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
-              <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Cash Earned</div>
-              <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>${formatNum(savingsResult.cashEarned)}</div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: "12px", color: S.dim, textAlign: "center", marginTop: "10px" }}>
-            Enter minutes + production + sell rate to calculate
-          </div>
-        )}
       </div>
       <Card S={S}>
         <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>QUICK REFERENCE</div>
@@ -577,7 +617,7 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
     return (
       <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
         <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span></div>
+          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span><div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Unlock: {plotCosts[plotKey].join(", ")}</div></div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
         </div>
         <div style={{ padding: "10px 14px" }}>
@@ -664,7 +704,7 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
       <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px", textAlign: "center" }}>
         <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "4px" }}>ESTIMATED TOTAL PRODUCTION</div>
         <div style={{ fontSize: "32px", color: S.accent, fontWeight: 800 }}>{invResult.grandTotal.toLocaleString()}/s</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px", marginTop: "10px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "6px", marginTop: "10px" }}>
           {PLOTS.map(p => (
             <div key={p} style={{ background: S.card, borderRadius: "6px", padding: "6px", border: "1px solid " + S.border }}>
               <div style={{ fontSize: "10px", color: S.dim }}>{p}</div>
@@ -716,7 +756,7 @@ function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, set
       <div>
         <div style={labelStyle}>Plot</div>
         <div style={{ display: "flex", gap: "6px" }}>
-          {[1, 2, 3].map(m => <PillBtn key={m} label={m + "x"} active={compPlot === m} onClick={() => setCompPlot(m)} S={S} />)}
+          {[5, 3, 2, 1].map(m => <PillBtn key={m} label={m + "x"} active={compPlot === m} onClick={() => setCompPlot(m)} S={S} />)}
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -984,15 +1024,92 @@ interface OptimizerTabProps {
   optPlot: PlotKey; setOptPlot: (v: PlotKey) => void;
   optBudgetB: string; setOptBudgetB: (v: string) => void;
   sellRate: string; boostMultiplier: number;
+  inventory: InventoryState;
+  invResult: InvResult;
+  production: string;
 }
 
-function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier }: OptimizerTabProps) {
+function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier, inventory, invResult, production }: OptimizerTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
-  const optCfg           = plotCfg[optPlot];
+  const optCfg = plotCfg[optPlot];
+  if (!optCfg) return <div style={{ color: S.text }}>Invalid plot selected</div>;
   const optMaxLarge      = optCfg.plots * optCfg.largePer;
   const optMaxSmallTiles = optCfg.plots * optCfg.smallTiles;
   const optEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
   const optBudget        = (parseFloat(optBudgetB) || 0) * 1e9;
+  const prod             = parseFloat(production) || 0;
+
+  // Current inventory analysis for this plot
+  const plotInv = inventory[optPlot];
+  const plotData = invResult[optPlot];
+  const currentLargeNames = Object.entries(plotInv?.large ?? {}).filter(([_, c]) => c > 0).map(([n, c]) => ({ name: n, count: c, base: baseMap[n] ?? 0 }));
+  const currentSmallNames = Object.entries(plotInv?.small ?? {}).filter(([_, c]) => c > 0).map(([n, c]) => ({ name: n, count: c, base: baseMap[n] ?? 0 }));
+  const weakestLarge = currentLargeNames.length > 0 ? currentLargeNames.reduce((a, b) => a.base < b.base ? a : b) : null;
+  const emptyLargeSlots = Math.max(0, optMaxLarge - (plotData?.largeCount ?? 0));
+  const emptySmallTiles = Math.max(0, optMaxSmallTiles - (plotData?.smallTiles ?? 0));
+
+  // Check if 3x plots are filled (to determine if player has £1T plot)
+  const plots3xFilled = (() => {
+    const p3 = invResult["3x"];
+    return p3 && p3.largeCount >= (plotCfg["3x"].plots * plotCfg["3x"].largePer);
+  })();
+
+  // Pack cost info for Quantum and Mini Ruby
+  const PACK_COST_GAS = 1.5e6; // 1.5M gasoline per pack
+  const QUANTUM_CHANCE = 0.10;
+  const MINI_RUBY_CHANCE = 0.45;
+  const expectedQuantumCost = PACK_COST_GAS / QUANTUM_CHANCE; // ~12.5M gas
+  const expectedMiniRubyCost = PACK_COST_GAS / MINI_RUBY_CHANCE; // ~2.78M gas
+
+  // Build suggestions based on inventory
+  const plotHasMachines = (plotData?.largeCount ?? 0) > 0 || (plotData?.smallTiles ?? 0) > 0;
+  const suggestions = useMemo<{ text: string; priority: "high" | "medium" | "low" }[]>(() => {
+    const s: { text: string; priority: "high" | "medium" | "low" }[] = [];
+
+    // If plot has 0 machines, player likely doesn't own it yet
+    if (!plotHasMachines) {
+      s.push({ text: `No machines on ${optPlot} plot — you may not own this plot yet. Add machines in the Inventory tab to get suggestions.`, priority: "low" });
+      return s;
+    }
+
+    if (emptyLargeSlots > 0) {
+      const bestAffordable = [...machines.large].reverse().find(m => m.cost <= optBudget || optBudget === 0);
+      if (bestAffordable) {
+        s.push({ text: `You have ${emptyLargeSlots} empty large slot${emptyLargeSlots > 1 ? "s" : ""} on ${optPlot}. Fill with ${bestAffordable.name} (${bestAffordable.costLabel}) for +${(bestAffordable.base * optCfg.mult).toLocaleString()}/s each.`, priority: "high" });
+      }
+    }
+
+    if (weakestLarge && weakestLarge.base < machines.large[machines.large.length - 1].base) {
+      const nextUp = machines.large.find(m => m.base > weakestLarge.base);
+      if (nextUp) {
+        const gain = (nextUp.base - weakestLarge.base) * optCfg.mult;
+        s.push({ text: `Upgrade ${weakestLarge.count}× ${weakestLarge.name} → ${nextUp.name} for +${gain.toLocaleString()}/s per machine (${nextUp.costLabel} each).`, priority: "medium" });
+      }
+    }
+
+    if (emptySmallTiles > 0) {
+      s.push({ text: `${emptySmallTiles} empty small tile${emptySmallTiles > 1 ? "s" : ""} on ${optPlot}. Open Infinity Packs (1.5M gas) for Quantum (10% chance, ~15M gas avg) or Mini Ruby (45% chance, ~3.3M gas avg) to fill.`, priority: "medium" });
+    }
+
+    const hasQuantums = currentSmallNames.some(m => m.name === "Quantum");
+    const hasMiniRuby = currentSmallNames.some(m => m.name === "Mini Ruby");
+    if (!hasQuantums && !hasMiniRuby && plotData && plotData.smallTiles > 0) {
+      const worstSmall = currentSmallNames.reduce((a, b) => a.base < b.base ? a : b, currentSmallNames[0]);
+      if (worstSmall && worstSmall.base < 67) {
+        s.push({ text: `Replace ${worstSmall.name} (${worstSmall.base}/s) with pack machines. Mini Ruby gives 67/s (45% drop from 1.5M gas pack). Quantum gives 175/s (10% drop).`, priority: "low" });
+      }
+    }
+
+    if (!plots3xFilled && (optPlot === "5x")) {
+      s.push({ text: "Fill your 3x plots before buying the 5x ($99T) plot. 3x plots give better value at this stage.", priority: "high" });
+    }
+
+    if (s.length === 0) {
+      s.push({ text: "Plot looks optimised! Consider upgrading to higher-tier large drills or opening Infinity Packs for better small fillers.", priority: "low" });
+    }
+
+    return s;
+  }, [optPlot, optBudget, emptyLargeSlots, emptySmallTiles, weakestLarge, plots3xFilled, currentSmallNames, plotData, optCfg.mult, plotHasMachines]);
 
   interface OptResult {
     largeDrill: LargeMachine | null;
@@ -1027,16 +1144,36 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
   }, [optBudget, optPlot, optEffectiveRate, optMaxLarge, optMaxSmallTiles, optCfg.mult]);
 
   const rankedLarge = useMemo<(LargeMachine & { prodPerDollar: number })[]>(() =>
-    [...machines.large].map(m => ({ ...m, prodPerDollar: m.base / m.cost })).sort((a, b) => b.prodPerDollar - a.prodPerDollar),
+    [...machines.large].map(m => ({ ...m, prodPerDollar: m.base / m.cost })).sort((a, b) => b.base - a.base),
   []);
+
+  const priorityColor = (p: "high" | "medium" | "low") => p === "high" ? S.red : p === "medium" ? S.accent : S.dim;
+  const priorityLabel = (p: "high" | "medium" | "low") => p === "high" ? "HIGH" : p === "medium" ? "MED" : "LOW";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       <Heading text="Plot Optimizer" S={S} />
+
+      {/* Inventory-based suggestions */}
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+        <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>SUGGESTIONS — {optPlot} PLOT</span>
+          <span style={{ fontSize: "10px", color: S.dim }}>{plotData?.totalProd.toLocaleString() ?? 0}/s current</span>
+        </div>
+        <div style={{ padding: "4px" }}>
+          {suggestions.map((sg, i) => (
+            <div key={i} style={{ display: "flex", gap: "8px", padding: "10px", borderBottom: i < suggestions.length - 1 ? "1px solid " + S.border : "none", alignItems: "flex-start" }}>
+              <span style={{ fontSize: "9px", fontWeight: 800, color: priorityColor(sg.priority), background: S.hl, padding: "2px 6px", borderRadius: "4px", whiteSpace: "nowrap", marginTop: "2px" }}>{priorityLabel(sg.priority)}</span>
+              <span style={{ fontSize: "12px", color: S.text, lineHeight: "1.5" }}>{sg.text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
           <div style={labelStyle}>Plot Type</div>
-          <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
             {PLOTS.map(p => <PillBtn key={p} label={p} active={optPlot === p} onClick={() => setOptPlot(p)} S={S} />)}
           </div>
         </div>
@@ -1044,11 +1181,10 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
           <div style={labelStyle}>Budget (B)</div>
           <input style={inputStyle} type="number" value={optBudgetB} onChange={e => setOptBudgetB(e.target.value)} placeholder="e.g. 500" />
         </div>
-      </div>
-      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+      </div>      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
         <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border }}>
-          <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>LARGE DRILLS — VALUE RANKING</span>
-          <span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>prod per billion spent</span>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>LARGE DRILLS — EFFICIENCY RANKING</span>
+          <span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>production per $ spent</span>
         </div>
         <div style={{ padding: "0 4px" }}>
           {rankedLarge.map((m, i) => {
@@ -1122,6 +1258,28 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
           Enter a budget above to see your optimal loadout recommendation.
         </div>
       )}
+      {/* Pack cost info */}
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "12px" }}>
+        <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px" }}>INFINITY PACK COSTS (1.5M gas each)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+          <div style={{ background: S.hl, borderRadius: "6px", padding: "8px", border: "1px solid " + S.border }}>
+            <div style={{ fontSize: "11px", color: S.dim }}>Quantum (10%)</div>
+            <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedQuantumCost)} gas avg</div>
+            <div style={{ fontSize: "10px", color: S.dim }}>175/s base · 2×1</div>
+          </div>
+          <div style={{ background: S.hl, borderRadius: "6px", padding: "8px", border: "1px solid " + S.border }}>
+            <div style={{ fontSize: "11px", color: S.dim }}>Mini Ruby (45%)</div>
+            <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedMiniRubyCost)} gas avg</div>
+            <div style={{ fontSize: "10px", color: S.dim }}>67/s base · 1×1</div>
+          </div>
+        </div>
+        {prod > 0 && (
+          <div style={{ fontSize: "11px", color: S.dim, marginTop: "6px", textAlign: "center" }}>
+            At {prod.toLocaleString()}/s: ~{formatTime(expectedQuantumCost / prod)} per Quantum · ~{formatTime(expectedMiniRubyCost / prod)} per Mini Ruby
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
@@ -1135,7 +1293,73 @@ interface FormulasTabProps {
 function FormulasTab({ S, clearAllData }: FormulasTabProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-      <Heading text="Formulas" S={S} />
+      <Heading text="Guide" S={S} />
+
+      {/* Getting Started */}
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px" }}>
+        <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700, marginBottom: "8px" }}>GETTING STARTED</div>
+        {[
+          "Buy all 3× 2x plots first ($2.5M, $100M, $500M) — everything produces double",
+          "Always fill 2x plots before 1x — same machine, double output",
+          "Sell gasoline at rate $14-15 only — patience pays off",
+          "Never sell machines (90% loss) — cascade old ones down to 2x then 1x before selling",
+        ].map((tip, i) => (
+          <div key={i} style={{ fontSize: "12px", color: S.text, padding: "5px 0", borderBottom: i < 3 ? "1px solid " + S.border : "none", lineHeight: "1.5" }}>
+            {tip}
+          </div>
+        ))}
+      </div>
+
+      {/* Plot Layout Diagram */}
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "14px" }}>
+        <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700, marginBottom: "10px" }}>PLOT LAYOUT — 5×5 GRID (25 TILES)</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "3px", marginBottom: "10px" }}>
+          {/* Row 1-2, Col 1-2: Large */}
+          <div style={{ gridColumn: "1/3", gridRow: "1/3", background: S.hl, border: "1px solid " + S.accent, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "50px" }}>
+            <span style={{ fontSize: "10px", color: S.accent, fontWeight: 700 }}>Large</span>
+          </div>
+          {/* Row 1-2, Col 3-4: Large */}
+          <div style={{ gridColumn: "3/5", gridRow: "1/3", background: S.hl, border: "1px solid " + S.accent, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "10px", color: S.accent, fontWeight: 700 }}>Large</span>
+          </div>
+          {/* Row 1, Col 5: Small */}
+          <div style={{ background: S.ok, border: "1px solid " + S.green, borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "24px" }}>
+            <span style={{ fontSize: "9px", color: S.green, fontWeight: 600 }}>S</span>
+          </div>
+          {/* Row 2, Col 5: Small */}
+          <div style={{ background: S.ok, border: "1px solid " + S.green, borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "9px", color: S.green, fontWeight: 600 }}>S</span>
+          </div>
+          {/* Row 3-4, Col 1-2: Large */}
+          <div style={{ gridColumn: "1/3", gridRow: "3/5", background: S.hl, border: "1px solid " + S.accent, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "50px" }}>
+            <span style={{ fontSize: "10px", color: S.accent, fontWeight: 700 }}>Large</span>
+          </div>
+          {/* Row 3-4, Col 3-4: Large */}
+          <div style={{ gridColumn: "3/5", gridRow: "3/5", background: S.hl, border: "1px solid " + S.accent, borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "10px", color: S.accent, fontWeight: 700 }}>Large</span>
+          </div>
+          {/* Row 3, Col 5: Small */}
+          <div style={{ background: S.ok, border: "1px solid " + S.green, borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "9px", color: S.green, fontWeight: 600 }}>S</span>
+          </div>
+          {/* Row 4, Col 5: Small */}
+          <div style={{ background: S.ok, border: "1px solid " + S.green, borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontSize: "9px", color: S.green, fontWeight: 600 }}>S</span>
+          </div>
+          {/* Row 5: 5 small tiles */}
+          {[1,2,3,4,5].map(n => (
+            <div key={n} style={{ background: S.ok, border: "1px solid " + S.green, borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", minHeight: "24px" }}>
+              <span style={{ fontSize: "9px", color: S.green, fontWeight: 600 }}>S</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: "12px", justifyContent: "center", fontSize: "11px" }}>
+          <span><span style={{ color: S.accent, fontWeight: 700 }}>4 Large</span> <span style={{ color: S.dim }}>(2×2) = 16 tiles</span></span>
+          <span><span style={{ color: S.green, fontWeight: 700 }}>9 Small</span> <span style={{ color: S.dim }}>(1×1) = 9 tiles</span></span>
+        </div>
+      </div>
+
+      {/* Formulas */}
       {formulasList.map((f, i) => (
         <div key={i} style={{ padding: "12px", background: S.card, border: "1px solid " + S.border, borderRadius: "10px" }}>
           <div style={{ fontSize: "13px", color: S.gold, fontWeight: 700, marginBottom: "4px" }}>{f.name}</div>
@@ -1166,11 +1390,10 @@ export default function Home() {
   const [target, setTarget]             = useSaved<string>("tgt", "diamond");
   const [cashBoost, setCashBoost]       = useSaved<string>("boost", "285");
   const [refCap, setRefCap]             = useSaved<number>("refCap", 1000000);
-  const [savingsMinutes, setSavingsMinutes] = useSaved<string>("saveMins", "");
   const [compFrom, setCompFrom]         = useSaved<string>("c1", "0");
   const [compTo, setCompTo]             = useSaved<string>("c2", "1");
   const [compPlot, setCompPlot]         = useSaved<number>("cP", 2);
-  const [inventory, setInventory]       = useSaved<InventoryState>("inv", makeEmptyInventory());
+  const [inventory, setInventory]       = useSaved<InventoryState>("inv", makeEmptyInventory(), migrateInventory);
   const [visibleMachines, setVisibleMachines] = useSaved<VisibleMachines>("visMach", {
     large: Object.fromEntries(machines.large.map((m) => [m.name, false])),
     small: Object.fromEntries(machines.small.map((m) => [m.name, false])),
@@ -1191,6 +1414,7 @@ export default function Home() {
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [timerRunning, setTimerRunning]     = useState(false);
   const [timerDone, setTimerDone]           = useState(false);
+  const [timerTotal, setTimerTotal]         = useState(0);
   const timerEndRef     = useRef<number | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -1198,7 +1422,8 @@ export default function Home() {
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     const endTime = Date.now() + secs * 1000;
     timerEndRef.current = endTime;
-    try { localStorage.setItem(LS_PREFIX + "timerEnd", endTime.toString()); } catch {}
+    setTimerTotal(Math.ceil(secs));
+    try { localStorage.setItem(LS_PREFIX + "timerEnd", endTime.toString()); localStorage.setItem(LS_PREFIX + "timerTotal", Math.ceil(secs).toString()); } catch {}
     if (Notification.permission === "default") Notification.requestPermission();
     setTimerRemaining(Math.ceil(secs));
     setTimerDone(false);
@@ -1230,6 +1455,8 @@ export default function Home() {
   useEffect(() => {
     try {
       const savedEnd = localStorage.getItem(LS_PREFIX + "timerEnd");
+      const savedTotal = localStorage.getItem(LS_PREFIX + "timerTotal");
+      if (savedTotal) setTimerTotal(parseInt(savedTotal));
       if (savedEnd) {
         const remaining = (parseInt(savedEnd) - Date.now()) / 1000;
         if (remaining > 0) startTimer(remaining);
@@ -1287,17 +1514,6 @@ export default function Home() {
     [production, gasoline, cash, sellRate, boostMultiplier, refCap, activeTarget]
   );
 
-  const savingsResult = useMemo(() => {
-    const mins = parseFloat(savingsMinutes) || 0;
-    const prod = parseFloat(production) || 0;
-    const rate = grindResult.effectiveRate;
-    if (!mins || !prod || !rate) return null;
-    const secs        = mins * 60;
-    const gasProduced = prod * secs;
-    const cashEarned  = gasProduced * rate;
-    return { gasProduced, cashEarned, secs };
-  }, [savingsMinutes, production, grindResult.effectiveRate]);
-
   const clearAllData = () => {
     if (!confirm("Reset all saved data? This clears everything.")) return;
     Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX)).forEach(k => localStorage.removeItem(k));
@@ -1353,15 +1569,14 @@ export default function Home() {
             cash={cash} setCash={setCash}
             cashBoost={cashBoost} setCashBoost={setCashBoost}
             refCap={refCap} setRefCap={setRefCap}
-            savingsMinutes={savingsMinutes} setSavingsMinutes={setSavingsMinutes}
             target={target} setTarget={setTarget}
             allTargets={allTargets}
             showAddTarget={showAddTarget} setShowAddTarget={setShowAddTarget}
             newTargetName={newTargetName} setNewTargetName={setNewTargetName}
             newTargetCost={newTargetCost} setNewTargetCost={setNewTargetCost}
             addTarget={addTarget} deleteTarget={deleteTarget}
-            grindResult={grindResult} savingsResult={savingsResult}
-            timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining}
+            grindResult={grindResult}
+            timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining} timerTotal={timerTotal}
             onTimerStart={startTimer} onTimerStop={stopTimer}
           />
         )}
@@ -1403,9 +1618,11 @@ export default function Home() {
             optPlot={optPlot} setOptPlot={setOptPlot}
             optBudgetB={optBudgetB} setOptBudgetB={setOptBudgetB}
             sellRate={sellRate} boostMultiplier={boostMultiplier}
+            inventory={inventory} invResult={invResult}
+            production={production}
           />
         )}
-        {tab === "Formulas" && (
+        {tab === "Guide" && (
           <FormulasTab S={S} clearAllData={clearAllData} />
         )}
       </div>
