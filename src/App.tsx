@@ -57,7 +57,7 @@ const machines: { large: LargeMachine[]; small: SmallMachine[] } = {
     { name: "Plasma Drill",       base: 50,  size: "1×1", tiles: 1 },
     { name: "Mini Ruby",          base: 67,  size: "1×1", tiles: 1 },
     { name: "Mini Diamond Drill", base: 100, size: "1×1", tiles: 1 },
-    { name: "Mini Multi Drill",   base: 250, size: "1×1", tiles: 1 },
+    { name: "Mini Multi Drill",   base: 250, size: "2×1", tiles: 2 },
     { name: "Quantum",            base: 175, size: "2×1", tiles: 2 },
   ],
 };
@@ -90,11 +90,112 @@ const plotCfg: Record<PlotKey, PlotCfg> = {
 
 
 const plotCosts: Record<PlotKey, string[]> = {
-  "1x": ["Free", "Free", "Free", "Free", "Free", "Free"],
+  "1x": ["Free", "$5K", "$20K", "$50K", "$150K", "$500K"],
   "2x": ["$2.5M", "$100M", "$500M"],
   "3x": ["$100B", "$1T"],
   "5x": ["$99T"],
 };
+
+type PlotOwned = Record<PlotKey, boolean[]>;
+
+const plotUnlockCosts: Record<PlotKey, { label: string; cost: string }[]> = {
+  "1x": [
+    { label: "Plot 1", cost: "Free" },
+    { label: "Plot 2", cost: "$5K" },
+    { label: "Plot 3", cost: "$20K" },
+    { label: "Plot 4", cost: "$50K" },
+    { label: "Plot 5", cost: "$150K" },
+    { label: "Plot 6", cost: "$500K" },
+  ],
+  "2x": [
+    { label: "Plot 1", cost: "$2.5M" },
+    { label: "Plot 2", cost: "$100M" },
+    { label: "Plot 3", cost: "$500M" },
+  ],
+  "3x": [
+    { label: "Plot 1", cost: "$100B" },
+    { label: "Plot 2", cost: "$1T" },
+  ],
+  "5x": [
+    { label: "Plot 1", cost: "$99T" },
+  ],
+};
+
+type RefinerySize = "none" | "2x2" | "2x1" | "1x1";
+
+function makeDefaultPlotOwned(): PlotOwned {
+  return {
+    "1x": [true, false, false, false, false, false],
+    "2x": [false, false, false],
+    "3x": [false, false],
+    "5x": [false],
+  };
+}
+
+function migratePlotOwned(saved: PlotOwned | Record<string, boolean>): PlotOwned {
+  if (!saved) return makeDefaultPlotOwned();
+  if (Array.isArray((saved as PlotOwned)["1x"])) return saved as PlotOwned;
+  const def = makeDefaultPlotOwned();
+  const old = saved as Record<string, boolean>;
+  if (old["2x"]) def["2x"] = [true, true, true];
+  if (old["3x"]) def["3x"] = [true, true];
+  if (old["5x"]) def["5x"] = [true];
+  return def;
+}
+
+function getSmartBuyNext(invResult: InvResult, plotOwned: PlotOwned, inventory: InventoryState): string {
+  // Find first unowned plot worth buying
+  for (const plotKey of (["2x", "3x", "5x"] as PlotKey[])) {
+    const owned = plotOwned[plotKey] || [];
+    const nextIdx = owned.findIndex((v: boolean) => !v);
+    if (nextIdx !== -1) {
+      const info = plotUnlockCosts[plotKey][nextIdx];
+      return "Unlock " + plotKey + " " + info.label + " (" + info.cost + ") — " + plotKey + " multiplier on everything placed there.";
+    }
+  }
+
+  // All plots owned — find empty large slots on highest multiplier plots first
+  for (const plotKey of (["5x", "3x", "2x", "1x"] as PlotKey[])) {
+    const data = invResult[plotKey];
+    if (data.largeCount < data.maxLarge) {
+      const empty = data.maxLarge - data.largeCount;
+      return "Fill " + empty + " empty large slot" + (empty > 1 ? "s" : "") + " on " + plotKey + " plots with the best drills you can afford.";
+    }
+  }
+
+  // All large slots filled — find weakest drill to upgrade
+  let weakestPlot: PlotKey | null = null;
+  let weakestName = "";
+  let weakestBase = Infinity;
+  for (const plotKey of (["5x", "3x", "2x", "1x"] as PlotKey[])) {
+    const plotInv = inventory[plotKey]?.large ?? {};
+    for (const [name, count] of Object.entries(plotInv)) {
+      if (count > 0 && (baseMap[name] ?? 0) < weakestBase) {
+        weakestBase = baseMap[name] ?? 0;
+        weakestName = name;
+        weakestPlot = plotKey;
+      }
+    }
+  }
+  if (weakestPlot && weakestBase < 7500) {
+    const nextDrill = machines.large.find(m => m.base > weakestBase);
+    if (nextDrill) {
+      return "Upgrade " + weakestName + " on " + weakestPlot + " to " + nextDrill.name + " (" + nextDrill.costLabel + ").";
+    }
+  }
+
+  // Check for empty small tiles
+  for (const plotKey of (["5x", "3x", "2x", "1x"] as PlotKey[])) {
+    const data = invResult[plotKey];
+    if (data.smallTiles < data.maxSmallTiles) {
+      const empty = data.maxSmallTiles - data.smallTiles;
+      return "Fill " + empty + " empty small tile" + (empty > 1 ? "s" : "") + " on " + plotKey + " with Infinity Pack machines.";
+    }
+  }
+
+  return "Everything looks maxed out — you're at endgame!";
+}
+
 
 // "What should I buy next" milestones
 const buyNextMilestones: { maxProd: number; suggestion: string }[] = [
@@ -256,13 +357,19 @@ interface InvResult extends Record<PlotKey, PlotResult> {
   grandTotal: number;
 }
 
-function calcInventory(inv: InventoryState): InvResult {
+function calcInventory(inv: InventoryState, refinerySize: RefinerySize = "none", plotOwned?: PlotOwned): InvResult {
   const results = {} as InvResult;
   let grandTotal = 0;
   for (const plot of PLOTS) {
     const cfg = plotCfg[plot];
-    const maxLarge      = cfg.plots * cfg.largePer;
-    const maxSmallTiles = cfg.plots * cfg.smallTiles;
+    const ownedCount = plotOwned ? (plotOwned[plot] || []).filter(Boolean).length : cfg.plots;
+    let maxLarge      = ownedCount * cfg.largePer;
+    let maxSmallTiles = ownedCount * cfg.smallTiles;
+    if (plot === "1x") {
+      if (refinerySize === "2x2") maxLarge -= 1;
+      else if (refinerySize === "2x1") maxSmallTiles -= 2;
+      else if (refinerySize === "1x1") maxSmallTiles -= 1;
+    }
     let largeCount = 0, largeProd = 0, smallTiles = 0, smallProd = 0;
     const plotLarge = inv[plot]?.large ?? {};
     const plotSmall = inv[plot]?.small ?? {};
@@ -450,6 +557,9 @@ interface CalcTabProps {
   grindResult: GrindResult;
   timerDone: boolean; timerRunning: boolean; timerRemaining: number; timerTotal: number;
   onTimerStart: (s: number) => void; onTimerStop: () => void;
+  invResult: InvResult;
+  plotOwned: PlotOwned;
+  inventory: InventoryState;
 }
 
 function CalcTab({
@@ -460,6 +570,7 @@ function CalcTab({
   newTargetName, setNewTargetName, newTargetCost, setNewTargetCost,
   addTarget, deleteTarget, grindResult: gr,
   timerDone, timerRunning, timerRemaining, timerTotal, onTimerStart, onTimerStop,
+  invResult, plotOwned, inventory,
 }: CalcTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
   return (
@@ -568,11 +679,9 @@ function CalcTab({
       <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
         <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>WHAT SHOULD I BUY NEXT?</div>
         <div style={{ fontSize: "13px", color: S.text, lineHeight: "1.6" }}>
-          {(() => {
-            const milestone = buyNextMilestones.find(m => gr.p < m.maxProd);
-            return milestone ? milestone.suggestion : "You're at endgame! Max out everything.";
-          })()}
+          {getSmartBuyNext(invResult, plotOwned, inventory)}
         </div>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "6px" }}>Based on your inventory</div>
       </div>
       <Card S={S}>
         <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>QUICK REFERENCE</div>
@@ -593,6 +702,77 @@ function CalcTab({
   );
 }
 
+
+// ── Plot & Refinery Settings Panel ──
+interface PlotSettingsPanelProps {
+  S: Theme;
+  plotOwned: PlotOwned;
+  setPlotOwned: React.Dispatch<React.SetStateAction<PlotOwned>>;
+  refinerySize: RefinerySize;
+  setRefinerySize: React.Dispatch<React.SetStateAction<RefinerySize>>;
+  onClose: () => void;
+}
+
+function PlotSettingsPanel({ S, plotOwned, setPlotOwned, refinerySize, setRefinerySize, onClose }: PlotSettingsPanelProps) {
+  const plotOrder: PlotKey[] = ["1x", "2x", "3x", "5x"];
+  const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
+  return (
+    <div style={{ background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+        <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>Plot & Refinery Settings</span>
+        <button onClick={onClose} style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Done</button>
+      </div>
+      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "12px", lineHeight: "1.5" }}>Toggle which plots you own. Slot counts and suggestions update automatically.</div>
+      {plotOrder.map(plotKey => {
+        const plots = plotUnlockCosts[plotKey];
+        const owned = plotOwned[plotKey] || plots.map(() => false);
+        const color = plotColors[plotKey];
+        return (
+          <div key={plotKey} style={{ marginBottom: "16px" }}>
+            <div style={{ fontSize: "12px", fontWeight: 700, color, marginBottom: "6px" }}>{plotKey} Plots ({owned.filter(Boolean).length}/{plots.length} owned)</div>
+            {plots.map((p, i) => {
+              const isOwned = owned[i] ?? false;
+              return (
+                <div key={i} onClick={() => {
+                  setPlotOwned((prev: PlotOwned) => {
+                    const arr = [...(prev[plotKey] || plots.map(() => false))];
+                    arr[i] = !arr[i];
+                    return { ...prev, [plotKey]: arr };
+                  });
+                }} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+                  <div style={{ width: "20px", height: "20px", borderRadius: "5px", border: "2px solid " + (isOwned ? color : S.border), background: isOwned ? color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {isOwned && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: "13px", color: S.text, flex: 1 }}>{p.label}</span>
+                  <span style={{ fontSize: "11px", color: S.dim }}>{p.cost}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginTop: "8px", marginBottom: "8px" }}>REFINERY SIZE (IN 1x ZONE)</div>
+      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "10px", lineHeight: "1.4" }}>The 2×2 refinery occupies 1 large slot (23 total instead of 24 across your 1x plots). Other sizes take small tiles.</div>
+      {([
+        { val: "none" as RefinerySize, label: "No Refinery", desc: "All slots available" },
+        { val: "2x2" as RefinerySize, label: "2×2 Refinery", desc: "–1 large slot across 1x plots" },
+        { val: "2x1" as RefinerySize, label: "2×1 Refinery", desc: "–2 small tiles from 1x" },
+        { val: "1x1" as RefinerySize, label: "1×1 Refinery", desc: "–1 small tile from 1x" },
+      ]).map(opt => (
+        <div key={opt.val} onClick={() => setRefinerySize(opt.val)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+          <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: "2px solid " + (refinerySize === opt.val ? S.accent : S.border), background: refinerySize === opt.val ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {refinerySize === opt.val && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fff" }} />}
+          </div>
+          <div>
+            <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{opt.label}</div>
+            <div style={{ fontSize: "11px", color: S.dim }}>{opt.desc}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Inventory Tab ──
 interface InventoryTabProps {
   S: Theme;
@@ -604,9 +784,14 @@ interface InventoryTabProps {
   toggleMachine: (type: "large" | "small", name: string) => void;
   updateInventory: (plot: PlotKey, type: "large" | "small", machine: string, delta: number) => void;
   setInventory: (v: InventoryState) => void;
+  plotOwned: PlotOwned;
+  setPlotOwned: React.Dispatch<React.SetStateAction<PlotOwned>>;
+  refinerySize: RefinerySize;
+  setRefinerySize: React.Dispatch<React.SetStateAction<RefinerySize>>;
 }
 
-function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, setShowManage, toggleMachine, updateInventory, setInventory }: InventoryTabProps) {
+function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, setShowManage, toggleMachine, updateInventory, setInventory, plotOwned, setPlotOwned, refinerySize, setRefinerySize }: InventoryTabProps) {
+  const [showPlotSettings, setShowPlotSettings] = useState(false);
   const { inputStyle: _is, labelStyle: _ls } = makeStyles(S);
   const visLarge = machines.large.filter((m) => visibleMachines.large?.[m.name]);
   const visSmall = machines.small.filter((m) => visibleMachines.small?.[m.name]);
@@ -714,6 +899,21 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
         </div>
       </div>
       {PLOTS.map(renderPlot)}
+
+      <button onClick={() => setShowPlotSettings(!showPlotSettings)} style={{ width: "100%", padding: "12px", borderRadius: "10px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "2px solid " + S.accent, background: S.hl, color: S.accent, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+        <span>🏗</span> Plot & Refinery Settings
+      </button>
+
+      {showPlotSettings && (
+        <PlotSettingsPanel
+          S={S}
+          plotOwned={plotOwned}
+          setPlotOwned={setPlotOwned}
+          refinerySize={refinerySize}
+          setRefinerySize={setRefinerySize}
+          onClose={() => setShowPlotSettings(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1394,6 +1594,8 @@ export default function Home() {
   const [compTo, setCompTo]             = useSaved<string>("c2", "1");
   const [compPlot, setCompPlot]         = useSaved<number>("cP", 2);
   const [inventory, setInventory]       = useSaved<InventoryState>("inv", makeEmptyInventory(), migrateInventory);
+  const [plotOwned, setPlotOwned]       = useSaved<PlotOwned>("plotOwned2", makeDefaultPlotOwned(), migratePlotOwned);
+  const [refinerySize, setRefinerySize] = useSaved<RefinerySize>("refinerySize", "none");
   const [visibleMachines, setVisibleMachines] = useSaved<VisibleMachines>("visMach", {
     large: Object.fromEntries(machines.large.map((m) => [m.name, false])),
     small: Object.fromEntries(machines.small.map((m) => [m.name, false])),
@@ -1499,7 +1701,7 @@ export default function Home() {
     });
   };
 
-  const invResult = useMemo(() => calcInventory(inventory), [inventory]);
+  const invResult = useMemo(() => calcInventory(inventory, refinerySize, plotOwned), [inventory, refinerySize, plotOwned]);
 
   const grindResult = useMemo<GrindResult>(() =>
     calcGrind({
@@ -1578,6 +1780,7 @@ export default function Home() {
             grindResult={grindResult}
             timerDone={timerDone} timerRunning={timerRunning} timerRemaining={timerRemaining} timerTotal={timerTotal}
             onTimerStart={startTimer} onTimerStop={stopTimer}
+            invResult={invResult} plotOwned={plotOwned} inventory={inventory}
           />
         )}
         {tab === "Inventory" && (
@@ -1590,6 +1793,8 @@ export default function Home() {
             toggleMachine={toggleMachine}
             updateInventory={updateInventory}
             setInventory={setInventory}
+            plotOwned={plotOwned} setPlotOwned={setPlotOwned}
+            refinerySize={refinerySize} setRefinerySize={setRefinerySize}
           />
         )}
         {tab === "Compare" && (
