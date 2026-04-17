@@ -797,12 +797,15 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
   const visSmall = machines.small.filter((m) => visibleMachines.small?.[m.name]);
 
   const renderPlot = (plotKey: PlotKey) => {
+    const ownedArr = plotOwned[plotKey] || [];
+    const ownedCount = ownedArr.filter(Boolean).length;
+    if (ownedCount === 0) return null;
     const data = invResult[plotKey];
     const cfg  = plotCfg[plotKey];
     return (
       <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
         <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span><div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Unlock: {plotCosts[plotKey].join(", ")}</div></div>
+          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span><span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>({ownedCount}/{plotUnlockCosts[plotKey].length} owned)</span></div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
         </div>
         <div style={{ padding: "10px 14px" }}>
@@ -1577,8 +1580,220 @@ function FormulasTab({ S, clearAllData }: FormulasTabProps) {
   );
 }
 
+
+// ── Welcome / Onboarding Flow ──
+interface WelcomeFlowProps {
+  S: Theme;
+  onComplete: (data: {
+    production: string;
+    sellRate: string;
+    cashBoost: string;
+    plotOwned: PlotOwned;
+    refinerySize: RefinerySize;
+    visibleMachines: VisibleMachines;
+  }) => void;
+}
+
+function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
+  const [step, setStep] = useState(0);
+  const [prod, setProd] = useState("");
+  const [rate, setRate] = useState("15");
+  const [boost, setBoost] = useState("285");
+  const [owned, setOwned] = useState<PlotOwned>(makeDefaultPlotOwned());
+  const [refSize, setRefSize] = useState<RefinerySize>("none");
+
+  const { inputStyle } = makeStyles(S);
+
+  const togglePlot = (plotKey: PlotKey, idx: number) => {
+    setOwned(prev => {
+      const arr = [...(prev[plotKey] || [])];
+      arr[idx] = !arr[idx];
+      return { ...prev, [plotKey]: arr };
+    });
+  };
+
+  const finish = () => {
+    // Auto-enable the top 4 large + Mini Ruby + Quantum in visible machines
+    const vis: VisibleMachines = {
+      large: Object.fromEntries(machines.large.map(m => [m.name, m.base >= 1500])),
+      small: Object.fromEntries(machines.small.map(m => [m.name, m.name === "Mini Ruby" || m.name === "Quantum"])),
+    };
+    onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis });
+  };
+
+  const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
+  const totalSteps = 4;
+
+  return (
+    <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
+      <div style={{ maxWidth: "440px", width: "100%" }}>
+
+        {/* Step 0: Splash */}
+        {step === 0 && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>⛽</div>
+            <div style={{ fontSize: "28px", fontWeight: 800, color: S.gold, fontStyle: "italic", marginBottom: "8px" }}>Crude Gains</div>
+            <div style={{ fontSize: "14px", color: S.dim, marginBottom: "24px", lineHeight: "1.6" }}>
+              The ultimate companion app for Oil Empire Tycoon on Roblox. Track your machines, plan upgrades, and figure out exactly what to buy next.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", textAlign: "left", background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "16px", marginBottom: "24px" }}>
+              {[
+                { icon: "📊", text: "Calculate grind times and income" },
+                { icon: "🏗", text: "Track your machines across all plots" },
+                { icon: "🎯", text: "Get smart suggestions on what to buy next" },
+                { icon: "⚡", text: "Compare drills and plan upgrade paths" },
+              ].map((f, i) => (
+                <div key={i} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <span style={{ fontSize: "18px" }}>{f.icon}</span>
+                  <span style={{ fontSize: "13px", color: S.text }}>{f.text}</span>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setStep(1)} style={{ padding: "14px 40px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff", width: "100%" }}>
+              Get Started
+            </button>
+          </div>
+        )}
+
+        {/* Step 1: Basic stats */}
+        {step === 1 && (
+          <div>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 1 of {totalSteps}</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Your Stats</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Enter your current numbers. You can always change these later.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Production per second</div>
+                <input style={inputStyle} type="number" value={prod} onChange={e => setProd(e.target.value)} placeholder="e.g. 50000" />
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Check in-game — this is your total gasoline production</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Sell Rate ($)</div>
+                <input style={inputStyle} type="number" value={rate} onChange={e => setRate(e.target.value)} placeholder="15" />
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Best to sell at $14-15 for max profit</div>
+              </div>
+              <div>
+                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Cash Boost (%)</div>
+                <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="285" />
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Found in your game passes — default is 285%</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
+              <button onClick={() => setStep(0)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
+              <button onClick={() => setStep(2)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Which plots do you own */}
+        {step === 2 && (
+          <div>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 2 of {totalSteps}</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Your Plots</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Tap to mark which plots you've unlocked in the game.</div>
+            {(["1x", "2x", "3x", "5x"] as PlotKey[]).map(plotKey => {
+              const plots = plotUnlockCosts[plotKey];
+              const ownedArr = owned[plotKey] || [];
+              const color = plotColors[plotKey];
+              return (
+                <div key={plotKey} style={{ marginBottom: "14px" }}>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color, marginBottom: "6px" }}>{plotKey} Plots</div>
+                  {plots.map((p, i) => {
+                    const isOwned = ownedArr[i] ?? false;
+                    return (
+                      <div key={i} onClick={() => togglePlot(plotKey, i)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+                        <div style={{ width: "22px", height: "22px", borderRadius: "6px", border: "2px solid " + (isOwned ? color : S.border), background: isOwned ? color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {isOwned && <span style={{ color: "#fff", fontSize: "13px", fontWeight: 800 }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: "13px", color: S.text, flex: 1 }}>{p.label}</span>
+                        <span style={{ fontSize: "12px", color: S.dim }}>{p.cost}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
+              <button onClick={() => setStep(1)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
+              <button onClick={() => setStep(3)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Refinery */}
+        {step === 3 && (
+          <div>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 3 of {totalSteps}</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Refinery Size</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Your refinery sits in the 1x zone and takes up space. What size is yours?</div>
+            {([
+              { val: "none" as RefinerySize, label: "No Refinery", desc: "I haven't placed one" },
+              { val: "2x2" as RefinerySize, label: "2×2 Refinery", desc: "Takes 1 large slot from 1x plots" },
+              { val: "2x1" as RefinerySize, label: "2×1 Refinery", desc: "Takes 2 small tiles from 1x" },
+              { val: "1x1" as RefinerySize, label: "1×1 Refinery", desc: "Takes 1 small tile from 1x" },
+            ]).map(opt => (
+              <div key={opt.val} onClick={() => setRefSize(opt.val)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
+                <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: "2px solid " + (refSize === opt.val ? S.accent : S.border), background: refSize === opt.val ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {refSize === opt.val && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fff" }} />}
+                </div>
+                <div>
+                  <div style={{ fontSize: "14px", color: S.text, fontWeight: 600 }}>{opt.label}</div>
+                  <div style={{ fontSize: "11px", color: S.dim }}>{opt.desc}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
+              <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
+              <button onClick={() => setStep(4)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: Quick tour + finish */}
+        {step === 4 && (
+          <div>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 4 of {totalSteps}</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Quick Tour</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Here's what each tab does:</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "24px" }}>
+              {[
+                { tab: "Calc", desc: "Your main dashboard — grind times, savings targets, and smart buy suggestions" },
+                { tab: "Inventory", desc: "Track every machine on every plot. Add machines with the ⚙ gear icon first" },
+                { tab: "Compare", desc: "Side-by-side drill comparison with ROI payback times" },
+                { tab: "Upgrade", desc: "Plan your upgrade path from any drill to any drill with cost breakdowns" },
+                { tab: "Optimizer", desc: "Per-plot suggestions and efficiency rankings to maximise production" },
+                { tab: "Guide", desc: "Tips for beginners, plot layout diagram, and key formulas" },
+              ].map((t, i) => (
+                <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "12px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent, background: S.hl, padding: "3px 8px", borderRadius: "6px", whiteSpace: "nowrap" }}>{t.tab}</span>
+                  <span style={{ fontSize: "12px", color: S.text, lineHeight: "1.5" }}>{t.desc}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: S.hl, border: "1px solid " + S.accent, borderRadius: "10px", padding: "12px", marginBottom: "20px", fontSize: "12px", color: S.text, lineHeight: "1.6" }}>
+              <strong style={{ color: S.accent }}>Tip:</strong> Start by going to the Inventory tab, tap ⚙ to select which machines you have, then add your counts. The "What Should I Buy Next?" on the Calc tab gets smarter the more you fill in.
+            </div>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={() => setStep(3)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
+              <button onClick={finish} style={{ flex: 2, padding: "14px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Let's Go! 🚀</button>
+            </div>
+          </div>
+        )}
+
+        {/* Progress dots */}
+        <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "24px" }}>
+          {[0,1,2,3,4].map(i => (
+            <div key={i} style={{ width: i === step ? "24px" : "8px", height: "8px", borderRadius: "4px", background: i === step ? S.accent : S.border, transition: "all 0.3s ease" }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──
 export default function Home() {
+  const [setupDone, setSetupDone]       = useSaved<boolean>("setupDone", false);
   const [theme, setTheme]               = useSaved<string>("theme", "cherry");
   const [showThemes, setShowThemes]     = useState(false);
   const S: Theme                        = themes[theme] ?? themes.cherry;
@@ -1732,6 +1947,27 @@ export default function Home() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showThemes]);
+
+  const handleWelcomeComplete = (data: {
+    production: string;
+    sellRate: string;
+    cashBoost: string;
+    plotOwned: PlotOwned;
+    refinerySize: RefinerySize;
+    visibleMachines: VisibleMachines;
+  }) => {
+    setProduction(data.production);
+    setSellRate(data.sellRate);
+    setCashBoost(data.cashBoost);
+    setPlotOwned(data.plotOwned);
+    setRefinerySize(data.refinerySize);
+    setVisibleMachines(data.visibleMachines);
+    setSetupDone(true);
+  };
+
+  if (!setupDone) {
+    return <WelcomeFlow S={S} onComplete={handleWelcomeComplete} />;
+  }
 
   return (
     <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif" }}>
