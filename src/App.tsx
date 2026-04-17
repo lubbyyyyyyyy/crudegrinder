@@ -1634,7 +1634,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
             <div style={{ fontSize: "48px", marginBottom: "16px" }}>⛽</div>
             <div style={{ fontSize: "28px", fontWeight: 800, color: S.gold, fontStyle: "italic", marginBottom: "8px" }}>Crude Gains</div>
             <div style={{ fontSize: "14px", color: S.dim, marginBottom: "24px", lineHeight: "1.6" }}>
-              The ultimate companion app for Oil Empire Tycoon on Roblox. Track your machines, plan upgrades, and figure out exactly what to buy next.
+              The ultimate companion app for Oil Empire Tycoon on Roblox. Track your machines, plan upgrades, and figure out exactly what to buy next. Developed by @Luna. 
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", textAlign: "left", background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "16px", marginBottom: "24px" }}>
               {[
@@ -1665,7 +1665,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
               <div>
                 <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Production per second</div>
                 <input style={inputStyle} type="number" value={prod} onChange={e => setProd(e.target.value)} placeholder="e.g. 50000" />
-                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Check in-game — this is your total gasoline production</div>
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Check in-game — this is your total gasoline production as per refinery</div>
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Sell Rate ($)</div>
@@ -1675,7 +1675,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
               <div>
                 <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Cash Boost (%)</div>
                 <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="285" />
-                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Found in your game passes — default is 285%</div>
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Based on Cash Totems — default is 0%</div>
               </div>
             </div>
             <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
@@ -1771,7 +1771,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
               ))}
             </div>
             <div style={{ background: S.hl, border: "1px solid " + S.accent, borderRadius: "10px", padding: "12px", marginBottom: "20px", fontSize: "12px", color: S.text, lineHeight: "1.6" }}>
-              <strong style={{ color: S.accent }}>Tip:</strong> Start by going to the Inventory tab, tap ⚙ to select which machines you have, then add your counts. The "What Should I Buy Next?" on the Calc tab gets smarter the more you fill in.
+              <strong style={{ color: S.accent }}>Tip:</strong> CHANGE THEME COLOUR IN TOP RIGHT CORNER then... Start by going to the Inventory tab, tap ⚙ to select which machines you have, then add your counts. The "What Should I Buy Next?" on the Calc tab gets smarter the more you fill in.
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
               <button onClick={() => setStep(3)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
