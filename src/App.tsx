@@ -2067,7 +2067,7 @@ export default function Home() {
     return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
   }, []);
 
-  const boostMultiplier = (parseFloat(cashBoost) || 0) / 100 + 1;
+  const boostMultiplier = parseFloat(cashBoost) / 100 || 0;
   const allTargets      = useMemo<Target[]>(() => [...defaultTargets, ...customTargets], [customTargets]);
   const activeTarget    = allTargets.find((t) => t.id === target) ?? allTargets[0];
 
