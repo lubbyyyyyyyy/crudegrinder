@@ -450,9 +450,9 @@ const themes: Record<string, Theme> = {
   white:    { name: "White",    emoji: "🤍", bg: "#FFFFFF",  card: "#F9FAFB",                border: "#E5E7EB",               accent: "#4F46E5", gold: "#3730A3", text: "#111827", dim: "#9CA3AF", green: "#16A34A", blue: "#2563EB", red: "#DC2626", inputBg: "#FFFFFF",                inputBorder: "#D1D5DB",             hl: "#EEF2FF",                     hdr: "linear-gradient(135deg,#F9FAFB,#F3F4F6)",  nav: "#FFFFFF",  alt: "#F3F4F6",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#E5E7EB",               pFill: "linear-gradient(90deg,#6366F1,#4F46E5)" },
   cherry:   { name: "Cherry",   emoji: "🌸", bg: "#FFF0F3",  card: "#FFF",                   border: "#FECDD3",               accent: "#BE123C", gold: "#9F1239", text: "#4C0519", dim: "#FDA4AF", green: "#15803D", blue: "#BE185D", red: "#E11D48", inputBg: "#FFF",                   inputBorder: "#FECDD3",             hl: "#FFE4E6",                     hdr: "linear-gradient(135deg,#FFE4E6,#FECDD3)",                          nav: "#FFF1F2",            alt: "#FFF1F2",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#FECDD3",               pFill: "linear-gradient(90deg,#F43F5E,#BE123C)" },
   ocean:    { name: "Ocean",    emoji: "🌊", bg: "#F0F9FF",  card: "#FFF",                   border: "#BAE6FD",               accent: "#0369A1", gold: "#0C4A6E", text: "#0C4A6E", dim: "#7DD3FC", green: "#15803D", blue: "#0284C7", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BAE6FD",             hl: "#E0F2FE",                     hdr: "linear-gradient(135deg,#E0F2FE,#BAE6FD)",                          nav: "#F0F9FF",            alt: "#F0F9FF",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#BAE6FD",               pFill: "linear-gradient(90deg,#0EA5E9,#0369A1)" },
-  forest:   { name: "Forest",   emoji: "🌲", bg: "#F0FDF4",  card: "#FFF",                   border: "#BBF7D0",               accent: "#15803D", gold: "#14532D", text: "#052e16", dim: "#166534", green: "#15803D", blue: "#166534", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BBF7D0",             hl: "#DCFCE7",                     hdr: "linear-gradient(135deg,#DCFCE7,#BBF7D0)",                          nav: "#F0FDF4",            alt: "#F0FDF4",                    ok: "#DCFCE7",                okB: "#86EFAC",               pBg: "#BBF7D0",               pFill: "linear-gradient(90deg,#22C55E,#15803D)" },
+  forest:   { name: "Forest",   emoji: "🌲", bg: "#F2FBF4",  card: "#FAFFFE",                border: "#C4E8CE",               accent: "#1A6B3C", gold: "#14532D", text: "#0A2E18", dim: "#4A7A5C", green: "#16A34A", blue: "#1A6B3C", red: "#DC2626", inputBg: "#FAFFFE",                inputBorder: "#C4E8CE",             hl: "#E2F5E8",                     hdr: "linear-gradient(135deg,#E2F5E8,#C4E8CE)",                          nav: "#F2FBF4",            alt: "#F2FBF4",                    ok: "#E2F5E8",                okB: "#86EFAC",               pBg: "#C4E8CE",               pFill: "linear-gradient(90deg,#22C55E,#1A6B3C)" },
   midnight: { name: "Midnight", emoji: "🌌", bg: "#0F172A",  card: "rgba(255,255,255,0.05)", border: "rgba(99,102,241,0.2)",  accent: "#818CF8", gold: "#A5B4FC", text: "#CBD5E1", dim: "#64748B", green: "#4ADE80", blue: "#60A5FA", red: "#F87171", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(99,102,241,0.3)", hl: "rgba(99,102,241,0.1)",        hdr: "linear-gradient(135deg,#161B2E,#141832)", nav: "#0F172A",  alt: "rgba(99,102,241,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#818CF8,#6366F1)" },
-  crimson:  { name: "Crimson",  emoji: "🔴", bg: "#2A0A0A",  card: "rgba(0,0,0,0.3)",        border: "rgba(239,68,68,0.2)",   accent: "#FCA5A5", gold: "#FECACA", text: "#F5F5F5", dim: "#9B5555", green: "#4ADE80", blue: "#FCA5A5", red: "#EF4444", inputBg: "rgba(0,0,0,0.3)",        inputBorder: "rgba(239,68,68,0.3)",  hl: "rgba(239,68,68,0.12)",        hdr: "linear-gradient(135deg,#3B0A0A,#1A0505)", nav: "#2A0A0A",  alt: "rgba(239,68,68,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#EF4444,#991B1B)" },
+  crimson:  { name: "Crimson",  emoji: "🔴", bg: "#14080A",  card: "rgba(255,255,255,0.05)", border: "rgba(239,68,68,0.2)",   accent: "#F87171", gold: "#FCA5A5", text: "#F0E8E8", dim: "#9B6A6A", green: "#4ADE80", blue: "#F87171", red: "#EF4444", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(239,68,68,0.25)", hl: "rgba(239,68,68,0.1)",         hdr: "linear-gradient(135deg,#1E0A0C,#14080A)",  nav: "#14080A",  alt: "rgba(239,68,68,0.05)",     ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.08)", pFill: "linear-gradient(90deg,#F87171,#DC2626)" },
 };
 
 // ── Visible machines state ──
@@ -751,22 +751,22 @@ function PlotSettingsPanel({ S, plotOwned, setPlotOwned, refinerySize, setRefine
       <div style={{ fontSize: "10px", color: S.dim, marginBottom: "6px" }}>Tap to toggle owned</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", marginBottom: "10px" }}>
         {[
-          // Row 1: 3x(0), 5x(0), 3x(1)
-          { plotKey: "3x" as PlotKey, idx: 0 },
-          { plotKey: "5x" as PlotKey, idx: 0 },
+          // Row 1: 3x(1T), 5x(99T), 3x(100B)
           { plotKey: "3x" as PlotKey, idx: 1 },
-          // Row 2: 2x(0), 2x(1), 2x(2)
-          { plotKey: "2x" as PlotKey, idx: 0 },
-          { plotKey: "2x" as PlotKey, idx: 1 },
+          { plotKey: "5x" as PlotKey, idx: 0 },
+          { plotKey: "3x" as PlotKey, idx: 0 },
+          // Row 2: 2x(500M), 2x(100M), 2x(2.5M)
           { plotKey: "2x" as PlotKey, idx: 2 },
-          // Row 3: 1x(0), 1x(1), 1x(2)
-          { plotKey: "1x" as PlotKey, idx: 0 },
-          { plotKey: "1x" as PlotKey, idx: 1 },
-          { plotKey: "1x" as PlotKey, idx: 2 },
-          // Row 4: 1x(3), 1x(4), 1x(5)
+          { plotKey: "2x" as PlotKey, idx: 1 },
+          { plotKey: "2x" as PlotKey, idx: 0 },
+          // Row 3: 1x(500K), 1x(50K), 1x(150K)
+          { plotKey: "1x" as PlotKey, idx: 5 },
           { plotKey: "1x" as PlotKey, idx: 3 },
           { plotKey: "1x" as PlotKey, idx: 4 },
-          { plotKey: "1x" as PlotKey, idx: 5 },
+          // Row 4: 1x(20K), 1x(free), 1x(5K)
+          { plotKey: "1x" as PlotKey, idx: 2 },
+          { plotKey: "1x" as PlotKey, idx: 0 },
+          { plotKey: "1x" as PlotKey, idx: 1 },
         ].map((cell, i) => {
           const color = plotColors[cell.plotKey];
           const ownedArr = plotOwned[cell.plotKey] || [];
@@ -1545,8 +1545,8 @@ function FormulasTab({ S, clearAllData }: FormulasTabProps) {
           "Never sell machines (90% loss) — cascade old ones down to 2x then 1x before selling",
           "Remove Cash & AFK totems from plots when not selling or going offline",
         ].map((tip, i) => (
-          <div key={i} style={{ fontSize: "12px", color: S.text, padding: "5px 0", borderBottom: i < 4 ? "1px solid " + S.border : "none", lineHeight: "1.5" }}>
-            {tip}
+          <div key={i} style={{ fontSize: "12px", color: S.text, padding: "5px 0", borderBottom: i < 4 ? "1px solid " + S.border : "none", lineHeight: "1.5", display: "flex", gap: "8px" }}>
+            <span style={{ color: S.accent, flexShrink: 0 }}>•</span><span>{tip}</span>
           </div>
         ))}
       </div>
@@ -1728,18 +1728,18 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
             <div style={{ fontSize: "12px", color: S.dim, marginBottom: "16px" }}>Tap to mark which plots you own.</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "5px", marginBottom: "20px" }}>
               {[
-                { plotKey: "3x" as PlotKey, idx: 0 },
-                { plotKey: "5x" as PlotKey, idx: 0 },
                 { plotKey: "3x" as PlotKey, idx: 1 },
-                { plotKey: "2x" as PlotKey, idx: 0 },
-                { plotKey: "2x" as PlotKey, idx: 1 },
+                { plotKey: "5x" as PlotKey, idx: 0 },
+                { plotKey: "3x" as PlotKey, idx: 0 },
                 { plotKey: "2x" as PlotKey, idx: 2 },
-                { plotKey: "1x" as PlotKey, idx: 0 },
-                { plotKey: "1x" as PlotKey, idx: 1 },
-                { plotKey: "1x" as PlotKey, idx: 2 },
+                { plotKey: "2x" as PlotKey, idx: 1 },
+                { plotKey: "2x" as PlotKey, idx: 0 },
+                { plotKey: "1x" as PlotKey, idx: 5 },
                 { plotKey: "1x" as PlotKey, idx: 3 },
                 { plotKey: "1x" as PlotKey, idx: 4 },
-                { plotKey: "1x" as PlotKey, idx: 5 },
+                { plotKey: "1x" as PlotKey, idx: 2 },
+                { plotKey: "1x" as PlotKey, idx: 0 },
+                { plotKey: "1x" as PlotKey, idx: 1 },
               ].map((cell, i) => {
                 const color = plotColors[cell.plotKey];
                 const isOwned = (owned[cell.plotKey] || [])[cell.idx] ?? false;
@@ -1776,7 +1776,6 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
         {step === 3 && (
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 3 of {totalSteps}</div>
-            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🚀</div>
             <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "8px" }}>You're all set</div>
             <div style={{ fontSize: "13px", color: S.dim, marginBottom: "28px", lineHeight: "1.7" }}>
               Start on the <strong style={{ color: S.accent }}>Calc</strong> tab for grind times.<br/>
@@ -1998,6 +1997,7 @@ export default function Home() {
                     <span>{v.emoji}</span><span>{v.name}</span>
                   </button>
                 ))}
+
               </div>
             )}
           </div>
