@@ -41,6 +41,7 @@ const machines: { large: LargeMachine[]; small: SmallMachine[] } = {
     { name: "Diamond Drill",     cost: 27.5e9,  costLabel: "$27.5B",  base: 2750 },
     { name: "Ruby Drill",        cost: 85.5e9,  costLabel: "$85.5B",  base: 4500 },
     { name: "Fusion Drill",      cost: 187.5e9, costLabel: "$187.5B", base: 7500 },
+    { name: "Uranium Drill",     cost: 437.5e9, costLabel: "$437.5B", base: 12500 },
   ],
   small: [
     { name: "Basic Drill",        base: 1,   size: "1×1", tiles: 1 },
@@ -177,7 +178,7 @@ function getSmartBuyNext(invResult: InvResult, plotOwned: PlotOwned, inventory: 
       }
     }
   }
-  if (weakestPlot && weakestBase < 7500) {
+  if (weakestPlot && weakestBase < 12500) {
     const nextDrill = machines.large.find(m => m.base > weakestBase);
     if (nextDrill) {
       return "Upgrade " + weakestName + " on " + weakestPlot + " to " + nextDrill.name + " (" + nextDrill.costLabel + ").";
@@ -210,7 +211,8 @@ const buyNextMilestones: { maxProd: number; suggestion: string }[] = [
   { maxProd: 200000, suggestion: "Ruby Drills on 2x plots — cascade old Diamonds to 1x plots for free production" },
   { maxProd: 300000, suggestion: "Fill remaining 1x plots with Ruby Drills. Save for Fusion Drills ($187.5B) on 3x" },
   { maxProd: 500000, suggestion: "Save for $1T plot, then fill with Fusion Drills. Endgame approaching!" },
-  { maxProd: Infinity, suggestion: "Save for 5x plot ($99T) — the ultimate multiplier. Fill with Fusion Drills for max production" },
+  { maxProd: 700000, suggestion: "Save for Uranium Drills ($437.5B) — 12,500/s base, the current best large drill" },
+  { maxProd: Infinity, suggestion: "Fill all plots with Uranium Drills on the 5x plot ($99T) — absolute endgame!" },
 ];
 interface Target {
   id: string;
@@ -223,6 +225,7 @@ const defaultTargets: Target[] = [
   { id: "diamond", n: "Diamond", c: 27.5   },
   { id: "ruby",    n: "Ruby",    c: 85.5   },
   { id: "fusion",  n: "Fusion",  c: 187.5  },
+  { id: "uranium", n: "Uranium", c: 437.5  },
 ];
 
 interface FormulaEntry { name: string; formula: string; example: string; }
@@ -234,7 +237,7 @@ const formulasList: FormulaEntry[] = [
   { name: "Savings (X mins)", formula: "Prod × EffRate × Time(s)",   example: "80k × $42.75 × 600 = $2.05B"  },
 ];
 
-const REFINERY_PRESETS = [50, 150, 250, 500, 800, 1500, 2000, 5000, 7500, 12500, 200000, 400000, 1000000, 5000000, 15000000];
+const REFINERY_PRESETS = [50, 150, 250, 500, 800, 1500, 2000, 5000, 7500, 12500, 200000, 400000, 1000000, 5000000, 15000000, 25000000];
 
 function formatRefCap(n: number): string {
   if (n >= 1e6) return (n / 1e6).toFixed(0) + "M";
@@ -437,10 +440,10 @@ interface Theme {
 }
 
 const themes: Record<string, Theme> = {
-  dark:     { name: "Dark",     emoji: "🌙", bg: "#0D0D0D",  card: "rgba(255,255,255,0.04)", border: "rgba(255,165,0,0.12)",  accent: "#FFB347", gold: "#FFD580", text: "#ccc",    dim: "#888",    green: "#7FFF7F", blue: "#5FC5FF", red: "#FF6B6B", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(255,165,0,0.25)", hl: "rgba(255,165,0,0.08)",        hdr: "linear-gradient(135deg,#1A1000,#140800)", nav: "#0D0D0D",    alt: "rgba(255,165,0,0.02)",       ok: "rgba(127,255,127,0.08)", okB: "rgba(127,255,127,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#FFB347,#FF8C00)" },
+  white:    { name: "White",    emoji: "🤍", bg: "#FFFFFF",  card: "#F9FAFB",                border: "#E5E7EB",               accent: "#4F46E5", gold: "#3730A3", text: "#111827", dim: "#9CA3AF", green: "#16A34A", blue: "#2563EB", red: "#DC2626", inputBg: "#FFFFFF",                inputBorder: "#D1D5DB",             hl: "#EEF2FF",                     hdr: "linear-gradient(135deg,#F9FAFB,#F3F4F6)",  nav: "#FFFFFF",  alt: "#F3F4F6",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#E5E7EB",               pFill: "linear-gradient(90deg,#6366F1,#4F46E5)" },
   cherry:   { name: "Cherry",   emoji: "🌸", bg: "#FFF0F3",  card: "#FFF",                   border: "#FECDD3",               accent: "#BE123C", gold: "#9F1239", text: "#4C0519", dim: "#FDA4AF", green: "#15803D", blue: "#BE185D", red: "#E11D48", inputBg: "#FFF",                   inputBorder: "#FECDD3",             hl: "#FFE4E6",                     hdr: "linear-gradient(135deg,#FFE4E6,#FECDD3)",                          nav: "#FFF1F2",            alt: "#FFF1F2",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#FECDD3",               pFill: "linear-gradient(90deg,#F43F5E,#BE123C)" },
   ocean:    { name: "Ocean",    emoji: "🌊", bg: "#F0F9FF",  card: "#FFF",                   border: "#BAE6FD",               accent: "#0369A1", gold: "#0C4A6E", text: "#0C4A6E", dim: "#7DD3FC", green: "#15803D", blue: "#0284C7", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BAE6FD",             hl: "#E0F2FE",                     hdr: "linear-gradient(135deg,#E0F2FE,#BAE6FD)",                          nav: "#F0F9FF",            alt: "#F0F9FF",                    ok: "#F0FDF4",                okB: "#86EFAC",               pBg: "#BAE6FD",               pFill: "linear-gradient(90deg,#0EA5E9,#0369A1)" },
-  forest:   { name: "Forest",   emoji: "🌲", bg: "#F0FDF4",  card: "#FFF",                   border: "#BBF7D0",               accent: "#15803D", gold: "#14532D", text: "#14532D", dim: "#86EFAC", green: "#15803D", blue: "#166534", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BBF7D0",             hl: "#DCFCE7",                     hdr: "linear-gradient(135deg,#DCFCE7,#BBF7D0)",                          nav: "#F0FDF4",            alt: "#F0FDF4",                    ok: "#DCFCE7",                okB: "#86EFAC",               pBg: "#BBF7D0",               pFill: "linear-gradient(90deg,#22C55E,#15803D)" },
+  forest:   { name: "Forest",   emoji: "🌲", bg: "#F0FDF4",  card: "#FFF",                   border: "#BBF7D0",               accent: "#15803D", gold: "#14532D", text: "#052e16", dim: "#166534", green: "#15803D", blue: "#166534", red: "#DC2626", inputBg: "#FFF",                   inputBorder: "#BBF7D0",             hl: "#DCFCE7",                     hdr: "linear-gradient(135deg,#DCFCE7,#BBF7D0)",                          nav: "#F0FDF4",            alt: "#F0FDF4",                    ok: "#DCFCE7",                okB: "#86EFAC",               pBg: "#BBF7D0",               pFill: "linear-gradient(90deg,#22C55E,#15803D)" },
   midnight: { name: "Midnight", emoji: "🌌", bg: "#0F172A",  card: "rgba(255,255,255,0.05)", border: "rgba(99,102,241,0.2)",  accent: "#818CF8", gold: "#A5B4FC", text: "#CBD5E1", dim: "#64748B", green: "#4ADE80", blue: "#60A5FA", red: "#F87171", inputBg: "rgba(255,255,255,0.06)", inputBorder: "rgba(99,102,241,0.3)", hl: "rgba(99,102,241,0.1)",        hdr: "linear-gradient(135deg,#161B2E,#141832)", nav: "#0F172A",  alt: "rgba(99,102,241,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#818CF8,#6366F1)" },
   crimson:  { name: "Crimson",  emoji: "🔴", bg: "#2A0A0A",  card: "rgba(0,0,0,0.3)",        border: "rgba(239,68,68,0.2)",   accent: "#FCA5A5", gold: "#FECACA", text: "#F5F5F5", dim: "#9B5555", green: "#4ADE80", blue: "#FCA5A5", red: "#EF4444", inputBg: "rgba(0,0,0,0.3)",        inputBorder: "rgba(239,68,68,0.3)",  hl: "rgba(239,68,68,0.12)",        hdr: "linear-gradient(135deg,#3B0A0A,#1A0505)", nav: "#2A0A0A",  alt: "rgba(239,68,68,0.05)",      ok: "rgba(74,222,128,0.1)",   okB: "rgba(74,222,128,0.3)", pBg: "rgba(255,255,255,0.1)", pFill: "linear-gradient(90deg,#EF4444,#991B1B)" },
 };
@@ -545,6 +548,7 @@ interface CalcTabProps {
   sellRate: string; setSellRate: (v: string) => void;
   gasoline: string; setGasoline: (v: string) => void;
   cash: string; setCash: (v: string) => void;
+  gasUnit: "B" | "M"; setGasUnit: (v: "B" | "M") => void;
   cashBoost: string; setCashBoost: (v: string) => void;
   refCap: number; setRefCap: (v: number) => void;
   target: string; setTarget: (v: string) => void;
@@ -564,7 +568,7 @@ interface CalcTabProps {
 
 function CalcTab({
   S, production, setProduction, sellRate, setSellRate, gasoline, setGasoline,
-  cash, setCash, cashBoost, setCashBoost, refCap, setRefCap,
+  cash, setCash, cashBoost, setCashBoost, refCap, setRefCap, gasUnit, setGasUnit,
   target, setTarget,
   allTargets, showAddTarget, setShowAddTarget,
   newTargetName, setNewTargetName, newTargetCost, setNewTargetCost,
@@ -588,18 +592,28 @@ function CalcTab({
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
-          <div style={labelStyle}>Gasoline (B)</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+            <div style={labelStyle}>Gasoline</div>
+            <div style={{ display: "flex", borderRadius: "6px", overflow: "hidden", border: "1px solid " + S.border }}>
+              {(["M", "B"] as const).map(u => (
+                <button key={u} onClick={() => setGasUnit(u)} style={{ padding: "2px 8px", fontSize: "10px", fontWeight: 700, cursor: "pointer", border: "none", background: gasUnit === u ? S.border : S.card, color: S.dim }}>{u}</button>
+              ))}
+            </div>
+          </div>
           <input style={inputStyle} type="number" value={gasoline} onChange={e => setGasoline(e.target.value)} placeholder="0" />
         </div>
         <div>
-          <div style={labelStyle}>Cash (B)</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+            <div style={labelStyle}>Cash</div>
+            <div style={{ fontSize: "10px", color: S.dim }}>{gasUnit}</div>
+          </div>
           <input style={inputStyle} type="number" value={cash} onChange={e => setCash(e.target.value)} placeholder="0" />
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
           <div style={labelStyle}>Cash Boost (%)</div>
-          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="285" />
+          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="0" />
         </div>
         <div>
           <div style={labelStyle}>Refinery Capacity</div>
@@ -681,7 +695,7 @@ function CalcTab({
         <div style={{ fontSize: "13px", color: S.text, lineHeight: "1.6" }}>
           {getSmartBuyNext(invResult, plotOwned, inventory)}
         </div>
-        <div style={{ fontSize: "10px", color: S.dim, marginTop: "6px" }}>Based on your inventory</div>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "6px" }}>{invResult.grandTotal === 0 ? "⚠ Add machines in Inventory tab first" : "Based on your inventory"}</div>
       </div>
       <Card S={S}>
         <div style={{ color: S.accent, fontWeight: 700, fontSize: "12px", marginBottom: "8px" }}>QUICK REFERENCE</div>
@@ -945,14 +959,18 @@ function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, set
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
           <div style={labelStyle}>Current</div>
-          <select value={compFrom} onChange={e => setCompFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+          <select value={compFrom} onChange={e => {
+            const newFrom = parseInt(e.target.value);
+            setCompFrom(e.target.value);
+            if (parseInt(compTo) <= newFrom) setCompTo(String(newFrom + 1));
+          }} style={{ ...inputStyle, cursor: "pointer" }}>
             {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
           </select>
         </div>
         <div>
           <div style={labelStyle}>Upgrade</div>
           <select value={compTo} onChange={e => setCompTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+            {machines.large.map((m, i) => i > parseInt(compFrom) ? <option key={i} value={i}>{m.name}</option> : null)}
           </select>
         </div>
       </div>
@@ -1230,14 +1248,20 @@ interface OptimizerTabProps {
   inventory: InventoryState;
   invResult: InvResult;
   production: string;
+  refinerySize: RefinerySize;
 }
 
-function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier, inventory, invResult, production }: OptimizerTabProps) {
+function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier, inventory, invResult, production, refinerySize }: OptimizerTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
   const optCfg = plotCfg[optPlot];
   if (!optCfg) return <div style={{ color: S.text }}>Invalid plot selected</div>;
-  const optMaxLarge      = optCfg.plots * optCfg.largePer;
-  const optMaxSmallTiles = optCfg.plots * optCfg.smallTiles;
+  let optMaxLarge      = optCfg.plots * optCfg.largePer;
+  let optMaxSmallTiles = optCfg.plots * optCfg.smallTiles;
+  if (optPlot === "1x") {
+    if (refinerySize === "2x2") optMaxLarge -= 1;
+    else if (refinerySize === "2x1") optMaxSmallTiles -= 2;
+    else if (refinerySize === "1x1") optMaxSmallTiles -= 1;
+  }
   const optEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
   const optBudget        = (parseFloat(optBudgetB) || 0) * 1e9;
   const prod             = parseFloat(production) || 0;
@@ -1461,28 +1485,174 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
           Enter a budget above to see your optimal loadout recommendation.
         </div>
       )}
-      {/* Pack cost info */}
-      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "12px" }}>
-        <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px" }}>INFINITY PACK COSTS (1.5M gas each)</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-          <div style={{ background: S.hl, borderRadius: "6px", padding: "8px", border: "1px solid " + S.border }}>
-            <div style={{ fontSize: "11px", color: S.dim }}>Quantum (10%)</div>
-            <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedQuantumCost)} gas avg</div>
-            <div style={{ fontSize: "10px", color: S.dim }}>175/s base · 2×1</div>
-          </div>
-          <div style={{ background: S.hl, borderRadius: "6px", padding: "8px", border: "1px solid " + S.border }}>
-            <div style={{ fontSize: "11px", color: S.dim }}>Mini Ruby (45%)</div>
-            <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedMiniRubyCost)} gas avg</div>
-            <div style={{ fontSize: "10px", color: S.dim }}>67/s base · 1×1</div>
+      {/* Pack cost info + Decision Maker button row */}
+      <div style={{ display: "flex", gap: "8px", alignItems: "stretch" }}>
+        <div style={{ flex: 1, background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "8px 10px" }}>
+          <div style={{ fontSize: "10px", color: S.accent, fontWeight: 700, marginBottom: "5px" }}>∞ PACKS (1.5M gas)</div>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: S.dim }}>Quantum 10%</div>
+              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedQuantumCost)}</div>
+              <div style={{ fontSize: "9px", color: S.dim }}>175/s · 2×1{prod > 0 ? " · " + formatTime(expectedQuantumCost / prod) : ""}</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "10px", color: S.dim }}>Mini Ruby 45%</div>
+              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedMiniRubyCost)}</div>
+              <div style={{ fontSize: "9px", color: S.dim }}>67/s · 1×1{prod > 0 ? " · " + formatTime(expectedMiniRubyCost / prod) : ""}</div>
+            </div>
           </div>
         </div>
-        {prod > 0 && (
-          <div style={{ fontSize: "11px", color: S.dim, marginTop: "6px", textAlign: "center" }}>
-            At {prod.toLocaleString()}/s: ~{formatTime(expectedQuantumCost / prod)} per Quantum · ~{formatTime(expectedMiniRubyCost / prod)} per Mini Ruby
-          </div>
-        )}
+        <DecisionMakerButton S={S} production={production} sellRate={sellRate} boostMultiplier={boostMultiplier} invResult={invResult} />
       </div>
 
+    </div>
+  );
+}
+
+// ── Decision Maker ──
+interface DecisionOption {
+  name: string;
+  costB: string;
+  prodGain: string;
+}
+
+function DecisionMakerButton({ S, production, sellRate, boostMultiplier, invResult }: {
+  S: Theme; production: string; sellRate: string; boostMultiplier: number; invResult: InvResult;
+}) {
+  const [open, setOpen] = useState(false);
+  const [optA, setOptA] = useState<DecisionOption>({ name: "Next Plot", costB: "1000", prodGain: "54000" });
+  const [optB, setOptB] = useState<DecisionOption>({ name: "Fusion Drills", costB: "187.5", prodGain: "30000" });
+  const { inputStyle, labelStyle } = makeStyles(S);
+
+  const prod = parseFloat(production) || 0;
+  const effectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
+
+  interface DecisionResult {
+    saveTime: number;
+    roi: number;
+    incomeAfter: number;
+    prodGain: number;
+  }
+
+  const calc = (opt: DecisionOption): DecisionResult | null => {
+    const cost = parseFloat(opt.costB) * 1e9;
+    const gain = parseFloat(opt.prodGain) || 0;
+    if (!cost || !effectiveRate) return null;
+    const gasNeeded = cost / effectiveRate;
+    const saveTime = prod > 0 ? gasNeeded / prod : 0;
+    const incomeAfter = (prod + gain) * effectiveRate;
+    const roi = gain > 0 && effectiveRate > 0 ? cost / (gain * effectiveRate) : 0;
+    return { saveTime, roi, incomeAfter, prodGain: gain };
+  };
+
+  const resA = calc(optA);
+  const resB = calc(optB);
+
+  const winner: "A" | "B" | null = (() => {
+    if (!resA || !resB) return null;
+    if (resA.roi <= 0 && resB.roi <= 0) return null;
+    if (resA.roi <= 0) return "B";
+    if (resB.roi <= 0) return "A";
+    return resA.roi <= resB.roi ? "A" : "B";
+  })();
+
+  const winnerPct = resA && resB && resA.roi > 0 && resB.roi > 0
+    ? Math.round(Math.abs(resA.roi - resB.roi) / Math.max(resA.roi, resB.roi) * 100)
+    : 0;
+
+  const renderOption = (label: "A" | "B", opt: DecisionOption, setOpt: (v: DecisionOption) => void, res: DecisionResult | null) => {
+    const isWinner = winner === label;
+    return (
+      <div style={{ flex: 1, background: isWinner ? S.ok : S.card, border: "2px solid " + (isWinner ? S.okB : S.border), borderRadius: "10px", padding: "12px" }}>
+        <div style={{ fontSize: "10px", fontWeight: 800, color: isWinner ? S.green : S.dim, marginBottom: "8px", textTransform: "uppercase" }}>
+          {isWinner ? "⚡ BETTER MOVE" : "Option " + label}
+        </div>
+        <div style={{ marginBottom: "8px" }}>
+          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>NAME</div>
+          <input
+            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
+            value={opt.name}
+            onChange={e => setOpt({ ...opt, name: e.target.value })}
+            placeholder="e.g. 3rd 3x Plot"
+          />
+        </div>
+        <div style={{ marginBottom: "8px" }}>
+          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>COST (B)</div>
+          <input
+            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
+            type="number"
+            value={opt.costB}
+            onChange={e => setOpt({ ...opt, costB: e.target.value })}
+            placeholder="e.g. 187.5"
+          />
+        </div>
+        <div style={{ marginBottom: "10px" }}>
+          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>PROD GAIN (/s)</div>
+          <input
+            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
+            type="number"
+            value={opt.prodGain}
+            onChange={e => setOpt({ ...opt, prodGain: e.target.value })}
+            placeholder="e.g. 30000"
+          />
+        </div>
+        {res ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+              <span style={{ color: S.dim }}>Save time</span>
+              <span style={{ color: S.blue, fontWeight: 700 }}>{formatTime(res.saveTime)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+              <span style={{ color: S.dim }}>Prod gain</span>
+              <span style={{ color: S.green, fontWeight: 700 }}>+{res.prodGain.toLocaleString()}/s</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+              <span style={{ color: S.dim }}>ROI payback</span>
+              <span style={{ color: isWinner ? S.green : S.accent, fontWeight: 700 }}>{res.roi > 0 ? formatTime(res.roi) : "--"}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
+              <span style={{ color: S.dim }}>Income after</span>
+              <span style={{ color: S.text, fontWeight: 600 }}>${formatNum(res.incomeAfter)}/s</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", marginTop: "8px" }}>Enter values above</div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen(!open)} title="Decision Maker" style={{ width: "52px", height: "100%", minHeight: "52px", borderRadius: "10px", fontSize: "22px", cursor: "pointer", border: "2px solid " + (open ? S.accent : S.border), background: open ? S.hl : S.card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "2px", padding: "4px" }}>
+        <span>⚖️</span>
+        <span style={{ fontSize: "8px", color: S.accent, fontWeight: 800, letterSpacing: "0.3px" }}>DECIDE</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", right: 0, width: "320px", background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "12px", zIndex: 50, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ fontSize: "12px", fontWeight: 800, color: S.accent, letterSpacing: "0.5px" }}>⚖️ DECISION MAKER</div>
+          {(!prod || !effectiveRate) && (
+            <div style={{ fontSize: "10px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "6px", padding: "6px" }}>
+              ⚠ Enter Production &amp; Sell Rate in Calc for full results
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "8px" }}>
+            {renderOption("A", optA, setOptA, resA)}
+            {renderOption("B", optB, setOptB, resB)}
+          </div>
+          {winner && winnerPct > 0 && (
+            <div style={{ background: S.ok, border: "2px solid " + S.okB, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
+              <div style={{ fontSize: "12px", fontWeight: 800, color: S.green, marginBottom: "2px" }}>
+                {winner === "A" ? optA.name : optB.name} pays off {winnerPct}% faster
+              </div>
+              <div style={{ fontSize: "10px", color: S.dim }}>
+                ROI: {winner === "A" ? formatTime(resA!.roi) : formatTime(resB!.roi)} vs {winner === "A" ? formatTime(resB!.roi) : formatTime(resA!.roi)}
+              </div>
+            </div>
+          )}
+          <button onClick={() => setOpen(false)} style={{ fontSize: "10px", color: S.dim, background: "transparent", border: "none", cursor: "pointer", textAlign: "right" }}>close ✕</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1591,16 +1761,19 @@ interface WelcomeFlowProps {
     plotOwned: PlotOwned;
     refinerySize: RefinerySize;
     visibleMachines: VisibleMachines;
+    theme: string;
   }) => void;
 }
 
-function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
+function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
   const [step, setStep] = useState(0);
   const [prod, setProd] = useState("");
   const [rate, setRate] = useState("15");
-  const [boost, setBoost] = useState("285");
+  const [boost, setBoost] = useState("0");
   const [owned, setOwned] = useState<PlotOwned>(makeDefaultPlotOwned());
   const [refSize, setRefSize] = useState<RefinerySize>("none");
+  const [selectedTheme, setSelectedTheme] = useState("white");
+  const S = themes[selectedTheme] ?? themes.cherry;
 
   const { inputStyle } = makeStyles(S);
 
@@ -1618,7 +1791,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
       large: Object.fromEntries(machines.large.map(m => [m.name, m.base >= 1500])),
       small: Object.fromEntries(machines.small.map(m => [m.name, m.name === "Mini Ruby" || m.name === "Quantum"])),
     };
-    onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis });
+    onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis, theme: selectedTheme });
   };
 
   const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
@@ -1649,6 +1822,16 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
                 </div>
               ))}
             </div>
+            <div style={{ marginBottom: "20px", textAlign: "left" }}>
+              <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px", textAlign: "center" }}>Pick a theme</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
+                {Object.entries(themes).map(([k, v]) => (
+                  <button key={k} onClick={() => setSelectedTheme(k)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", borderRadius: "20px", border: selectedTheme === k ? "2px solid " + S.accent : "1px solid " + S.border, background: selectedTheme === k ? S.hl : S.card, color: selectedTheme === k ? S.accent : S.dim, cursor: "pointer", fontSize: "13px", fontWeight: selectedTheme === k ? 700 : 400, transition: "all 0.15s ease" }}>
+                    <span>{v.emoji}</span><span>{v.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <button onClick={() => setStep(1)} style={{ padding: "14px 40px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff", width: "100%" }}>
               Get Started
             </button>
@@ -1674,7 +1857,7 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
               </div>
               <div>
                 <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Cash Boost (%)</div>
-                <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="285" />
+                <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="0" />
                 <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Based on Cash Totems — default is 0%</div>
               </div>
             </div>
@@ -1794,16 +1977,17 @@ function WelcomeFlow({ S, onComplete }: WelcomeFlowProps) {
 // ── Main App ──
 export default function Home() {
   const [setupDone, setSetupDone]       = useSaved<boolean>("setupDone", false);
-  const [theme, setTheme]               = useSaved<string>("theme", "cherry");
+  const [theme, setTheme]               = useSaved<string>("theme", "white");
   const [showThemes, setShowThemes]     = useState(false);
   const S: Theme                        = themes[theme] ?? themes.cherry;
   const [tab, setTab]                   = useSaved<TabKey>("tab", "Calc");
   const [production, setProduction]     = useSaved<string>("prod", "");
   const [gasoline, setGasoline]         = useSaved<string>("gas", "");
   const [cash, setCash]                 = useSaved<string>("cash", "");
+  const [gasUnit, setGasUnit]           = useSaved<"B" | "M">("gasUnit", "B");
   const [sellRate, setSellRate]         = useSaved<string>("rate", "");
   const [target, setTarget]             = useSaved<string>("tgt", "diamond");
-  const [cashBoost, setCashBoost]       = useSaved<string>("boost", "285");
+  const [cashBoost, setCashBoost]       = useSaved<string>("boost", "0");
   const [refCap, setRefCap]             = useSaved<number>("refCap", 1000000);
   const [compFrom, setCompFrom]         = useSaved<string>("c1", "0");
   const [compTo, setCompTo]             = useSaved<string>("c2", "1");
@@ -1883,7 +2067,7 @@ export default function Home() {
     return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
   }, []);
 
-  const boostMultiplier = (parseFloat(cashBoost) || 285) / 100;
+  const boostMultiplier = (parseFloat(cashBoost) || 0) / 100 + 1;
   const allTargets      = useMemo<Target[]>(() => [...defaultTargets, ...customTargets], [customTargets]);
   const activeTarget    = allTargets.find((t) => t.id === target) ?? allTargets[0];
 
@@ -1921,8 +2105,8 @@ export default function Home() {
   const grindResult = useMemo<GrindResult>(() =>
     calcGrind({
       prod:        parseFloat(production) || 0,
-      gas:         parseFloat(gasoline)   || 0,
-      cash:        parseFloat(cash)       || 0,
+      gas:         (parseFloat(gasoline) || 0) * (gasUnit === "M" ? 0.001 : 1),
+      cash:        (parseFloat(cash) || 0) * (gasUnit === "M" ? 0.001 : 1),
       rate:        parseFloat(sellRate)   || 0,
       boostMult:   boostMultiplier,
       refCap,
@@ -1955,6 +2139,7 @@ export default function Home() {
     plotOwned: PlotOwned;
     refinerySize: RefinerySize;
     visibleMachines: VisibleMachines;
+    theme: string;
   }) => {
     setProduction(data.production);
     setSellRate(data.sellRate);
@@ -1962,6 +2147,7 @@ export default function Home() {
     setPlotOwned(data.plotOwned);
     setRefinerySize(data.refinerySize);
     setVisibleMachines(data.visibleMachines);
+    setTheme(data.theme);
     setSetupDone(true);
   };
 
@@ -1989,7 +2175,7 @@ export default function Home() {
             )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: "3px", padding: "8px 10px", overflowX: "auto", borderBottom: "1px solid " + S.border, background: S.nav }}>
+        <div style={{ display: "flex", gap: "3px", padding: "8px 10px", overflowX: "auto", WebkitOverflowScrolling: "touch" as any, borderBottom: "1px solid " + S.border, background: S.nav }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: "6px 9px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, fontStyle: "italic", cursor: "pointer", whiteSpace: "nowrap", border: "none", background: tab === t ? S.hl : "transparent", color: tab === t ? S.accent : S.dim }}>
               {t}
@@ -2005,6 +2191,7 @@ export default function Home() {
             sellRate={sellRate} setSellRate={setSellRate}
             gasoline={gasoline} setGasoline={setGasoline}
             cash={cash} setCash={setCash}
+            gasUnit={gasUnit} setGasUnit={setGasUnit}
             cashBoost={cashBoost} setCashBoost={setCashBoost}
             refCap={refCap} setRefCap={setRefCap}
             target={target} setTarget={setTarget}
@@ -2061,6 +2248,7 @@ export default function Home() {
             sellRate={sellRate} boostMultiplier={boostMultiplier}
             inventory={inventory} invResult={invResult}
             production={production}
+            refinerySize={refinerySize}
           />
         )}
         {tab === "Guide" && (
