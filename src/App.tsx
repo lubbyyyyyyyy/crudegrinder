@@ -3,7 +3,7 @@
 // Fix 1: All tab components are top-level (not nested inside App) to prevent focus loss on re-render
 // Fix 2: Upgrader now shows per-step drill purchase recommendations and skip advice
 
-import { useState, useMemo, useEffect, useRef, ReactNode, CSSProperties } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, ReactNode, CSSProperties } from "react";
 
 // ── Constants ──
 const PLOTS = ["5x", "3x", "2x", "1x"] as const;
@@ -408,8 +408,15 @@ function useSaved<T>(key: string, defaultValue: T, migrate?: (val: any) => T): [
   useEffect(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(val)); } catch {}
-    }, 500);
+      try {
+        const serialized = JSON.stringify(val);
+        if (typeof requestIdleCallback !== "undefined") {
+          requestIdleCallback(() => { try { localStorage.setItem(LS_PREFIX + key, serialized); } catch {} });
+        } else {
+          localStorage.setItem(LS_PREFIX + key, serialized);
+        }
+      } catch {}
+    }, 1500);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [key, val]);
   return [val, setVal];
@@ -731,58 +738,68 @@ function PlotSettingsPanel({ S, plotOwned, setPlotOwned, refinerySize, setRefine
   const plotOrder: PlotKey[] = ["1x", "2x", "3x", "5x"];
   const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
   return (
-    <div style={{ background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-        <span style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>Plot & Refinery Settings</span>
-        <button onClick={onClose} style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Done</button>
+    <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <span style={{ fontSize: "12px", fontWeight: 700, color: S.text }}>Plots & Refinery</span>
+        <button onClick={onClose} style={{ padding: "3px 10px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Done</button>
       </div>
-      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "12px", lineHeight: "1.5" }}>Toggle which plots you own. Slot counts and suggestions update automatically.</div>
-      {plotOrder.map(plotKey => {
-        const plots = plotUnlockCosts[plotKey];
-        const owned = plotOwned[plotKey] || plots.map(() => false);
-        const color = plotColors[plotKey];
-        return (
-          <div key={plotKey} style={{ marginBottom: "16px" }}>
-            <div style={{ fontSize: "12px", fontWeight: 700, color, marginBottom: "6px" }}>{plotKey} Plots ({owned.filter(Boolean).length}/{plots.length} owned)</div>
-            {plots.map((p, i) => {
-              const isOwned = owned[i] ?? false;
-              return (
-                <div key={i} onClick={() => {
-                  setPlotOwned((prev: PlotOwned) => {
-                    const arr = [...(prev[plotKey] || plots.map(() => false))];
-                    arr[i] = !arr[i];
-                    return { ...prev, [plotKey]: arr };
-                  });
-                }} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "7px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-                  <div style={{ width: "20px", height: "20px", borderRadius: "5px", border: "2px solid " + (isOwned ? color : S.border), background: isOwned ? color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {isOwned && <span style={{ color: "#fff", fontSize: "12px", fontWeight: 800 }}>✓</span>}
-                  </div>
-                  <span style={{ fontSize: "13px", color: S.text, flex: 1 }}>{p.label}</span>
-                  <span style={{ fontSize: "11px", color: S.dim }}>{p.cost}</span>
-                </div>
-              );
-            })}
+      {/* Plots — map grid layout matching in-game layout */}
+      {/* Row 1: 3x | 5x | 3x */}
+      {/* Row 2: 2x | 2x | 2x */}
+      {/* Row 3: 1x | 1x | 1x */}
+      {/* Row 4: 1x | 1x | 1x */}
+      <div style={{ fontSize: "10px", color: S.dim, marginBottom: "6px" }}>Tap to toggle owned</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px", marginBottom: "10px" }}>
+        {[
+          // Row 1: 3x(0), 5x(0), 3x(1)
+          { plotKey: "3x" as PlotKey, idx: 0 },
+          { plotKey: "5x" as PlotKey, idx: 0 },
+          { plotKey: "3x" as PlotKey, idx: 1 },
+          // Row 2: 2x(0), 2x(1), 2x(2)
+          { plotKey: "2x" as PlotKey, idx: 0 },
+          { plotKey: "2x" as PlotKey, idx: 1 },
+          { plotKey: "2x" as PlotKey, idx: 2 },
+          // Row 3: 1x(0), 1x(1), 1x(2)
+          { plotKey: "1x" as PlotKey, idx: 0 },
+          { plotKey: "1x" as PlotKey, idx: 1 },
+          { plotKey: "1x" as PlotKey, idx: 2 },
+          // Row 4: 1x(3), 1x(4), 1x(5)
+          { plotKey: "1x" as PlotKey, idx: 3 },
+          { plotKey: "1x" as PlotKey, idx: 4 },
+          { plotKey: "1x" as PlotKey, idx: 5 },
+        ].map((cell, i) => {
+          const color = plotColors[cell.plotKey];
+          const ownedArr = plotOwned[cell.plotKey] || [];
+          const isOwned = ownedArr[cell.idx] ?? false;
+          const costInfo = plotUnlockCosts[cell.plotKey][cell.idx];
+          return (
+            <div key={i} onClick={() => {
+              setPlotOwned((prev: PlotOwned) => {
+                const arr = [...(prev[cell.plotKey] || plotUnlockCosts[cell.plotKey].map(() => false))];
+                arr[cell.idx] = !arr[cell.idx];
+                return { ...prev, [cell.plotKey]: arr };
+              });
+            }} style={{ padding: "8px 4px", borderRadius: "6px", border: "1px solid " + (isOwned ? color : S.border), background: isOwned ? color : S.card, cursor: "pointer", textAlign: "center" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: isOwned ? "#fff" : S.dim }}>{cell.plotKey}</div>
+              <div style={{ fontSize: "9px", color: isOwned ? "rgba(255,255,255,0.75)" : S.dim }}>{costInfo?.cost}</div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Refinery */}
+      <div style={{ fontSize: "10px", fontWeight: 700, color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginTop: "10px", marginBottom: "6px" }}>Refinery (1x zone)</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+        {([
+          { val: "none" as RefinerySize, label: "None" },
+          { val: "2x2" as RefinerySize, label: "2×2" },
+          { val: "2x1" as RefinerySize, label: "2×1" },
+          { val: "1x1" as RefinerySize, label: "1×1" },
+        ]).map(opt => (
+          <div key={opt.val} onClick={() => setRefinerySize(opt.val)} style={{ padding: "4px 12px", borderRadius: "6px", border: "1px solid " + (refinerySize === opt.val ? S.accent : S.border), background: refinerySize === opt.val ? S.hl : S.card, cursor: "pointer" }}>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: refinerySize === opt.val ? S.accent : S.dim }}>{opt.label}</span>
           </div>
-        );
-      })}
-      <div style={{ fontSize: "11px", color: S.dim, fontWeight: 600, marginTop: "8px", marginBottom: "8px" }}>REFINERY SIZE (IN 1x ZONE)</div>
-      <div style={{ fontSize: "11px", color: S.dim, marginBottom: "10px", lineHeight: "1.4" }}>The 2×2 refinery occupies 1 large slot (23 total instead of 24 across your 1x plots). Other sizes take small tiles.</div>
-      {([
-        { val: "none" as RefinerySize, label: "No Refinery", desc: "All slots available" },
-        { val: "2x2" as RefinerySize, label: "2×2 Refinery", desc: "–1 large slot across 1x plots" },
-        { val: "2x1" as RefinerySize, label: "2×1 Refinery", desc: "–2 small tiles from 1x" },
-        { val: "1x1" as RefinerySize, label: "1×1 Refinery", desc: "–1 small tile from 1x" },
-      ]).map(opt => (
-        <div key={opt.val} onClick={() => setRefinerySize(opt.val)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-          <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: "2px solid " + (refinerySize === opt.val ? S.accent : S.border), background: refinerySize === opt.val ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            {refinerySize === opt.val && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fff" }} />}
-          </div>
-          <div>
-            <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{opt.label}</div>
-            <div style={{ fontSize: "11px", color: S.dim }}>{opt.desc}</div>
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -819,7 +836,7 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
     return (
       <div key={plotKey} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
         <div style={{ background: S.hl, padding: "10px 14px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{cfg.label}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>{data.mult}x</span><span style={{ fontSize: "10px", color: S.dim, marginLeft: "8px" }}>({ownedCount}/{plotUnlockCosts[plotKey].length} owned)</span></div>
+          <div><span style={{ fontWeight: 700, fontSize: "13px", color: pColor(plotKey, S) }}>{plotKey}</span><span style={{ fontSize: "11px", color: S.dim, marginLeft: "8px" }}>({ownedCount}/{plotUnlockCosts[plotKey].length} owned)</span></div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: S.accent }}>{data.totalProd.toLocaleString()}/s</div>
         </div>
         <div style={{ padding: "10px 14px" }}>
@@ -917,8 +934,8 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
       </div>
       {PLOTS.map(renderPlot)}
 
-      <button onClick={() => setShowPlotSettings(!showPlotSettings)} style={{ width: "100%", padding: "12px", borderRadius: "10px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "2px solid " + S.accent, background: S.hl, color: S.accent, display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-        <span>🏗</span> Plot & Refinery Settings
+      <button onClick={() => setShowPlotSettings(!showPlotSettings)} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim, display: "flex", alignItems: "center", gap: "6px", alignSelf: "flex-start" }}>
+        Plot & Refinery Settings
       </button>
 
       {showPlotSettings && (
@@ -1485,177 +1502,27 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
           Enter a budget above to see your optimal loadout recommendation.
         </div>
       )}
-      {/* Pack cost info + Decision Maker button row */}
-      <div style={{ display: "flex", gap: "8px", alignItems: "stretch" }}>
-        <div style={{ flex: 1, background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "8px 10px" }}>
-          <div style={{ fontSize: "10px", color: S.accent, fontWeight: 700, marginBottom: "5px" }}>∞ PACKS (1.5M gas)</div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", color: S.dim }}>Quantum 10%</div>
-              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedQuantumCost)}</div>
-              <div style={{ fontSize: "9px", color: S.dim }}>175/s · 2×1{prod > 0 ? " · " + formatTime(expectedQuantumCost / prod) : ""}</div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "10px", color: S.dim }}>Mini Ruby 45%</div>
-              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedMiniRubyCost)}</div>
-              <div style={{ fontSize: "9px", color: S.dim }}>67/s · 1×1{prod > 0 ? " · " + formatTime(expectedMiniRubyCost / prod) : ""}</div>
-            </div>
+      {/* Pack cost info */}
+      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "8px 10px" }}>
+        <div style={{ fontSize: "10px", color: S.accent, fontWeight: 700, marginBottom: "5px" }}>∞ PACKS (1.5M gas)</div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "10px", color: S.dim }}>Quantum 10%</div>
+            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedQuantumCost)}</div>
+            <div style={{ fontSize: "9px", color: S.dim }}>175/s · 2×1{prod > 0 ? " · " + formatTime(expectedQuantumCost / prod) : ""}</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: "10px", color: S.dim }}>Mini Ruby 45%</div>
+            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700 }}>~{formatNum(expectedMiniRubyCost)}</div>
+            <div style={{ fontSize: "9px", color: S.dim }}>67/s · 1×1{prod > 0 ? " · " + formatTime(expectedMiniRubyCost / prod) : ""}</div>
           </div>
         </div>
-        <DecisionMakerButton S={S} production={production} sellRate={sellRate} boostMultiplier={boostMultiplier} invResult={invResult} />
       </div>
 
     </div>
   );
 }
 
-// ── Decision Maker ──
-interface DecisionOption {
-  name: string;
-  costB: string;
-  prodGain: string;
-}
-
-function DecisionMakerButton({ S, production, sellRate, boostMultiplier, invResult }: {
-  S: Theme; production: string; sellRate: string; boostMultiplier: number; invResult: InvResult;
-}) {
-  const [open, setOpen] = useState(false);
-  const [optA, setOptA] = useState<DecisionOption>({ name: "Next Plot", costB: "1000", prodGain: "54000" });
-  const [optB, setOptB] = useState<DecisionOption>({ name: "Fusion Drills", costB: "187.5", prodGain: "30000" });
-  const { inputStyle, labelStyle } = makeStyles(S);
-
-  const prod = parseFloat(production) || 0;
-  const effectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
-
-  interface DecisionResult {
-    saveTime: number;
-    roi: number;
-    incomeAfter: number;
-    prodGain: number;
-  }
-
-  const calc = (opt: DecisionOption): DecisionResult | null => {
-    const cost = parseFloat(opt.costB) * 1e9;
-    const gain = parseFloat(opt.prodGain) || 0;
-    if (!cost || !effectiveRate) return null;
-    const gasNeeded = cost / effectiveRate;
-    const saveTime = prod > 0 ? gasNeeded / prod : 0;
-    const incomeAfter = (prod + gain) * effectiveRate;
-    const roi = gain > 0 && effectiveRate > 0 ? cost / (gain * effectiveRate) : 0;
-    return { saveTime, roi, incomeAfter, prodGain: gain };
-  };
-
-  const resA = calc(optA);
-  const resB = calc(optB);
-
-  const winner: "A" | "B" | null = (() => {
-    if (!resA || !resB) return null;
-    if (resA.roi <= 0 && resB.roi <= 0) return null;
-    if (resA.roi <= 0) return "B";
-    if (resB.roi <= 0) return "A";
-    return resA.roi <= resB.roi ? "A" : "B";
-  })();
-
-  const winnerPct = resA && resB && resA.roi > 0 && resB.roi > 0
-    ? Math.round(Math.abs(resA.roi - resB.roi) / Math.max(resA.roi, resB.roi) * 100)
-    : 0;
-
-  const renderOption = (label: "A" | "B", opt: DecisionOption, setOpt: (v: DecisionOption) => void, res: DecisionResult | null) => {
-    const isWinner = winner === label;
-    return (
-      <div style={{ flex: 1, background: isWinner ? S.ok : S.card, border: "2px solid " + (isWinner ? S.okB : S.border), borderRadius: "10px", padding: "12px" }}>
-        <div style={{ fontSize: "10px", fontWeight: 800, color: isWinner ? S.green : S.dim, marginBottom: "8px", textTransform: "uppercase" }}>
-          {isWinner ? "⚡ BETTER MOVE" : "Option " + label}
-        </div>
-        <div style={{ marginBottom: "8px" }}>
-          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>NAME</div>
-          <input
-            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
-            value={opt.name}
-            onChange={e => setOpt({ ...opt, name: e.target.value })}
-            placeholder="e.g. 3rd 3x Plot"
-          />
-        </div>
-        <div style={{ marginBottom: "8px" }}>
-          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>COST (B)</div>
-          <input
-            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
-            type="number"
-            value={opt.costB}
-            onChange={e => setOpt({ ...opt, costB: e.target.value })}
-            placeholder="e.g. 187.5"
-          />
-        </div>
-        <div style={{ marginBottom: "10px" }}>
-          <div style={{ fontSize: "10px", color: S.dim, marginBottom: "3px" }}>PROD GAIN (/s)</div>
-          <input
-            style={{ ...inputStyle, fontSize: "12px", padding: "6px 8px" }}
-            type="number"
-            value={opt.prodGain}
-            onChange={e => setOpt({ ...opt, prodGain: e.target.value })}
-            placeholder="e.g. 30000"
-          />
-        </div>
-        {res ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-              <span style={{ color: S.dim }}>Save time</span>
-              <span style={{ color: S.blue, fontWeight: 700 }}>{formatTime(res.saveTime)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-              <span style={{ color: S.dim }}>Prod gain</span>
-              <span style={{ color: S.green, fontWeight: 700 }}>+{res.prodGain.toLocaleString()}/s</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-              <span style={{ color: S.dim }}>ROI payback</span>
-              <span style={{ color: isWinner ? S.green : S.accent, fontWeight: 700 }}>{res.roi > 0 ? formatTime(res.roi) : "--"}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px" }}>
-              <span style={{ color: S.dim }}>Income after</span>
-              <span style={{ color: S.text, fontWeight: 600 }}>${formatNum(res.incomeAfter)}/s</span>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", marginTop: "8px" }}>Enter values above</div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div style={{ position: "relative" }}>
-      <button onClick={() => setOpen(!open)} title="Decision Maker" style={{ width: "52px", height: "100%", minHeight: "52px", borderRadius: "10px", fontSize: "22px", cursor: "pointer", border: "2px solid " + (open ? S.accent : S.border), background: open ? S.hl : S.card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "2px", padding: "4px" }}>
-        <span>⚖️</span>
-        <span style={{ fontSize: "8px", color: S.accent, fontWeight: 800, letterSpacing: "0.3px" }}>DECIDE</span>
-      </button>
-      {open && (
-        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", right: 0, width: "320px", background: S.card, border: "2px solid " + S.accent, borderRadius: "12px", padding: "12px", zIndex: 50, boxShadow: "0 4px 20px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", gap: "10px" }}>
-          <div style={{ fontSize: "12px", fontWeight: 800, color: S.accent, letterSpacing: "0.5px" }}>⚖️ DECISION MAKER</div>
-          {(!prod || !effectiveRate) && (
-            <div style={{ fontSize: "10px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "6px", padding: "6px" }}>
-              ⚠ Enter Production &amp; Sell Rate in Calc for full results
-            </div>
-          )}
-          <div style={{ display: "flex", gap: "8px" }}>
-            {renderOption("A", optA, setOptA, resA)}
-            {renderOption("B", optB, setOptB, resB)}
-          </div>
-          {winner && winnerPct > 0 && (
-            <div style={{ background: S.ok, border: "2px solid " + S.okB, borderRadius: "8px", padding: "10px", textAlign: "center" }}>
-              <div style={{ fontSize: "12px", fontWeight: 800, color: S.green, marginBottom: "2px" }}>
-                {winner === "A" ? optA.name : optB.name} pays off {winnerPct}% faster
-              </div>
-              <div style={{ fontSize: "10px", color: S.dim }}>
-                ROI: {winner === "A" ? formatTime(resA!.roi) : formatTime(resB!.roi)} vs {winner === "A" ? formatTime(resB!.roi) : formatTime(resA!.roi)}
-              </div>
-            </div>
-          )}
-          <button onClick={() => setOpen(false)} style={{ fontSize: "10px", color: S.dim, background: "transparent", border: "none", cursor: "pointer", textAlign: "right" }}>close ✕</button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Formulas Tab ──
 interface FormulasTabProps {
@@ -1676,8 +1543,9 @@ function FormulasTab({ S, clearAllData }: FormulasTabProps) {
           "Always fill 2x plots before 1x — same machine, double output",
           "Sell gasoline at rate $14-15 only — patience pays off",
           "Never sell machines (90% loss) — cascade old ones down to 2x then 1x before selling",
+          "Remove Cash & AFK totems from plots when not selling or going offline",
         ].map((tip, i) => (
-          <div key={i} style={{ fontSize: "12px", color: S.text, padding: "5px 0", borderBottom: i < 3 ? "1px solid " + S.border : "none", lineHeight: "1.5" }}>
+          <div key={i} style={{ fontSize: "12px", color: S.text, padding: "5px 0", borderBottom: i < 4 ? "1px solid " + S.border : "none", lineHeight: "1.5" }}>
             {tip}
           </div>
         ))}
@@ -1795,178 +1663,137 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
   };
 
   const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
-  const totalSteps = 4;
+  const totalSteps = 3;
 
   return (
-    <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }}>
-      <div style={{ maxWidth: "440px", width: "100%" }}>
+    <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
+      <div style={{ maxWidth: "400px", width: "100%" }}>
 
         {/* Step 0: Splash */}
         {step === 0 && (
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: "48px", marginBottom: "16px" }}>⛽</div>
-            <div style={{ fontSize: "28px", fontWeight: 800, color: S.gold, fontStyle: "italic", marginBottom: "8px" }}>Crude Gains</div>
-            <div style={{ fontSize: "14px", color: S.dim, marginBottom: "24px", lineHeight: "1.6" }}>
-              The ultimate companion app for Oil Empire Tycoon on Roblox. Track your machines, plan upgrades, and figure out exactly what to buy next. Developed by @Luna. 
+            <div style={{ fontSize: "40px", marginBottom: "12px" }}>⛽</div>
+            <div style={{ fontSize: "26px", fontWeight: 800, color: S.gold, fontStyle: "italic", marginBottom: "6px" }}>Crude Gains</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "28px", lineHeight: "1.6" }}>
+              Companion app for Oil Empire Tycoon. Know exactly what to buy next, and when you can afford it.
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", textAlign: "left", background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "16px", marginBottom: "24px" }}>
-              {[
-                { icon: "📊", text: "Calculate grind times and income" },
-                { icon: "🏗", text: "Track your machines across all plots" },
-                { icon: "🎯", text: "Get smart suggestions on what to buy next" },
-                { icon: "⚡", text: "Compare drills and plan upgrade paths" },
-              ].map((f, i) => (
-                <div key={i} style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <span style={{ fontSize: "18px" }}>{f.icon}</span>
-                  <span style={{ fontSize: "13px", color: S.text }}>{f.text}</span>
-                </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", justifyContent: "center", marginBottom: "28px" }}>
+              {Object.entries(themes).map(([k, v]) => (
+                <button key={k} onClick={() => setSelectedTheme(k)} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: "20px", border: selectedTheme === k ? "2px solid " + S.accent : "1px solid " + S.border, background: selectedTheme === k ? S.hl : S.card, color: selectedTheme === k ? S.accent : S.dim, cursor: "pointer", fontSize: "12px", fontWeight: selectedTheme === k ? 700 : 400 }}>
+                  <span>{v.emoji}</span><span>{v.name}</span>
+                </button>
               ))}
             </div>
-            <div style={{ marginBottom: "20px", textAlign: "left" }}>
-              <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px", textAlign: "center" }}>Pick a theme</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
-                {Object.entries(themes).map(([k, v]) => (
-                  <button key={k} onClick={() => setSelectedTheme(k)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", borderRadius: "20px", border: selectedTheme === k ? "2px solid " + S.accent : "1px solid " + S.border, background: selectedTheme === k ? S.hl : S.card, color: selectedTheme === k ? S.accent : S.dim, cursor: "pointer", fontSize: "13px", fontWeight: selectedTheme === k ? 700 : 400, transition: "all 0.15s ease" }}>
-                    <span>{v.emoji}</span><span>{v.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            <button onClick={() => setStep(1)} style={{ padding: "14px 40px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff", width: "100%" }}>
-              Get Started
+            <button onClick={() => setStep(1)} style={{ padding: "14px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff", width: "100%" }}>
+              Get Started →
             </button>
+            <div style={{ fontSize: "11px", color: S.dim, marginTop: "12px" }}>by @Luna · Oil Empire Tycoon</div>
           </div>
         )}
 
-        {/* Step 1: Basic stats */}
+        {/* Step 1: Stats */}
         {step === 1 && (
           <div>
             <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 1 of {totalSteps}</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Your Stats</div>
-            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Enter your current numbers. You can always change these later.</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "4px" }}>Your stats</div>
+            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "20px" }}>You can update these any time in the app.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               <div>
-                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Production per second</div>
+                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Production /s</div>
                 <input style={inputStyle} type="number" value={prod} onChange={e => setProd(e.target.value)} placeholder="e.g. 50000" />
-                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Check in-game — this is your total gasoline production as per refinery</div>
               </div>
-              <div>
-                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Sell Rate ($)</div>
-                <input style={inputStyle} type="number" value={rate} onChange={e => setRate(e.target.value)} placeholder="15" />
-                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Best to sell at $14-15 for max profit</div>
-              </div>
-              <div>
-                <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", marginBottom: "4px" }}>Cash Boost (%)</div>
-                <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="0" />
-                <div style={{ fontSize: "10px", color: S.dim, marginTop: "2px" }}>Based on Cash Totems — default is 0%</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                <div>
+                  <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Sell Rate ($)</div>
+                  <input style={inputStyle} type="number" value={rate} onChange={e => setRate(e.target.value)} placeholder="15" />
+                </div>
+                <div>
+                  <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Cash Boost (%)</div>
+                  <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="0" />
+                </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
-              <button onClick={() => setStep(0)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
-              <button onClick={() => setStep(2)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
+              <button onClick={() => setStep(0)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
+              <button onClick={() => setStep(2)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next →</button>
             </div>
           </div>
         )}
 
-        {/* Step 2: Which plots do you own */}
+        {/* Step 2: Plots + Refinery merged */}
         {step === 2 && (
           <div>
             <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 2 of {totalSteps}</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Your Plots</div>
-            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Tap to mark which plots you've unlocked in the game.</div>
-            {(["1x", "2x", "3x", "5x"] as PlotKey[]).map(plotKey => {
-              const plots = plotUnlockCosts[plotKey];
-              const ownedArr = owned[plotKey] || [];
-              const color = plotColors[plotKey];
-              return (
-                <div key={plotKey} style={{ marginBottom: "14px" }}>
-                  <div style={{ fontSize: "12px", fontWeight: 700, color, marginBottom: "6px" }}>{plotKey} Plots</div>
-                  {plots.map((p, i) => {
-                    const isOwned = ownedArr[i] ?? false;
-                    return (
-                      <div key={i} onClick={() => togglePlot(plotKey, i)} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-                        <div style={{ width: "22px", height: "22px", borderRadius: "6px", border: "2px solid " + (isOwned ? color : S.border), background: isOwned ? color : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                          {isOwned && <span style={{ color: "#fff", fontSize: "13px", fontWeight: 800 }}>✓</span>}
-                        </div>
-                        <span style={{ fontSize: "13px", color: S.text, flex: 1 }}>{p.label}</span>
-                        <span style={{ fontSize: "12px", color: S.dim }}>{p.cost}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-            <div style={{ display: "flex", gap: "10px", marginTop: "20px" }}>
-              <button onClick={() => setStep(1)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
-              <button onClick={() => setStep(3)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Refinery */}
-        {step === 3 && (
-          <div>
-            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 3 of {totalSteps}</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Refinery Size</div>
-            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Your refinery sits in the 1x zone and takes up space. What size is yours?</div>
-            {([
-              { val: "none" as RefinerySize, label: "No Refinery", desc: "I haven't placed one" },
-              { val: "2x2" as RefinerySize, label: "2×2 Refinery", desc: "Takes 1 large slot from 1x plots" },
-              { val: "2x1" as RefinerySize, label: "2×1 Refinery", desc: "Takes 2 small tiles from 1x" },
-              { val: "1x1" as RefinerySize, label: "1×1 Refinery", desc: "Takes 1 small tile from 1x" },
-            ]).map(opt => (
-              <div key={opt.val} onClick={() => setRefSize(opt.val)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 0", borderBottom: "1px solid " + S.border, cursor: "pointer" }}>
-                <div style={{ width: "22px", height: "22px", borderRadius: "50%", border: "2px solid " + (refSize === opt.val ? S.accent : S.border), background: refSize === opt.val ? S.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  {refSize === opt.val && <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fff" }} />}
-                </div>
-                <div>
-                  <div style={{ fontSize: "14px", color: S.text, fontWeight: 600 }}>{opt.label}</div>
-                  <div style={{ fontSize: "11px", color: S.dim }}>{opt.desc}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
-              <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
-              <button onClick={() => setStep(4)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next</button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Quick tour + finish */}
-        {step === 4 && (
-          <div>
-            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 4 of {totalSteps}</div>
-            <div style={{ fontSize: "20px", fontWeight: 700, color: S.accent, marginBottom: "4px" }}>Quick Tour</div>
-            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "20px" }}>Here's what each tab does:</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "24px" }}>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "4px" }}>Your plots</div>
+            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "16px" }}>Tap to mark which plots you own.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "5px", marginBottom: "20px" }}>
               {[
-                { tab: "Calc", desc: "Your main dashboard — grind times, savings targets, and smart buy suggestions" },
-                { tab: "Inventory", desc: "Track every machine on every plot. Add machines with the ⚙ gear icon first" },
-                { tab: "Compare", desc: "Side-by-side drill comparison with ROI payback times" },
-                { tab: "Upgrade", desc: "Plan your upgrade path from any drill to any drill with cost breakdowns" },
-                { tab: "Optimizer", desc: "Per-plot suggestions and efficiency rankings to maximise production" },
-                { tab: "Guide", desc: "Tips for beginners, plot layout diagram, and key formulas" },
-              ].map((t, i) => (
-                <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "12px", display: "flex", gap: "10px", alignItems: "flex-start" }}>
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent, background: S.hl, padding: "3px 8px", borderRadius: "6px", whiteSpace: "nowrap" }}>{t.tab}</span>
-                  <span style={{ fontSize: "12px", color: S.text, lineHeight: "1.5" }}>{t.desc}</span>
+                { plotKey: "3x" as PlotKey, idx: 0 },
+                { plotKey: "5x" as PlotKey, idx: 0 },
+                { plotKey: "3x" as PlotKey, idx: 1 },
+                { plotKey: "2x" as PlotKey, idx: 0 },
+                { plotKey: "2x" as PlotKey, idx: 1 },
+                { plotKey: "2x" as PlotKey, idx: 2 },
+                { plotKey: "1x" as PlotKey, idx: 0 },
+                { plotKey: "1x" as PlotKey, idx: 1 },
+                { plotKey: "1x" as PlotKey, idx: 2 },
+                { plotKey: "1x" as PlotKey, idx: 3 },
+                { plotKey: "1x" as PlotKey, idx: 4 },
+                { plotKey: "1x" as PlotKey, idx: 5 },
+              ].map((cell, i) => {
+                const color = plotColors[cell.plotKey];
+                const isOwned = (owned[cell.plotKey] || [])[cell.idx] ?? false;
+                const costInfo = plotUnlockCosts[cell.plotKey][cell.idx];
+                return (
+                  <div key={i} onClick={() => togglePlot(cell.plotKey, cell.idx)} style={{ padding: "10px 4px", borderRadius: "8px", border: "1px solid " + (isOwned ? color : S.border), background: isOwned ? color : S.card, cursor: "pointer", textAlign: "center" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 700, color: isOwned ? "#fff" : S.dim }}>{cell.plotKey}</div>
+                    <div style={{ fontSize: "9px", color: isOwned ? "rgba(255,255,255,0.75)" : S.dim }}>{costInfo?.cost}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Refinery size</div>
+            <div style={{ display: "flex", gap: "6px", marginBottom: "24px" }}>
+              {([
+                { val: "none" as RefinerySize, label: "None" },
+                { val: "2x2" as RefinerySize, label: "2×2" },
+                { val: "2x1" as RefinerySize, label: "2×1" },
+                { val: "1x1" as RefinerySize, label: "1×1" },
+              ]).map(opt => (
+                <div key={opt.val} onClick={() => setRefSize(opt.val)} style={{ flex: 1, padding: "8px 4px", borderRadius: "8px", border: "1px solid " + (refSize === opt.val ? S.accent : S.border), background: refSize === opt.val ? S.hl : S.card, cursor: "pointer", textAlign: "center" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: refSize === opt.val ? S.accent : S.dim }}>{opt.label}</span>
                 </div>
               ))}
             </div>
-            <div style={{ background: S.hl, border: "1px solid " + S.accent, borderRadius: "10px", padding: "12px", marginBottom: "20px", fontSize: "12px", color: S.text, lineHeight: "1.6" }}>
-              <strong style={{ color: S.accent }}>Tip:</strong> CHANGE THEME COLOUR IN TOP RIGHT CORNER then... Start by going to the Inventory tab, tap ⚙ to select which machines you have, then add your counts. The "What Should I Buy Next?" on the Calc tab gets smarter the more you fill in.
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={() => setStep(1)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
+              <button onClick={() => setStep(3)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Done */}
+        {step === 3 && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 3 of {totalSteps}</div>
+            <div style={{ fontSize: "40px", marginBottom: "12px" }}>🚀</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "8px" }}>You're all set</div>
+            <div style={{ fontSize: "13px", color: S.dim, marginBottom: "28px", lineHeight: "1.7" }}>
+              Start on the <strong style={{ color: S.accent }}>Calc</strong> tab for grind times.<br/>
+              Set up your machines in <strong style={{ color: S.accent }}>Inventory</strong> for smarter suggestions.<br/>
+              Everything auto-saves as you go.
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={() => setStep(3)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>Back</button>
-              <button onClick={finish} style={{ flex: 2, padding: "14px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Let's Go! 🚀</button>
+              <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
+              <button onClick={finish} style={{ flex: 2, padding: "14px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Let's go</button>
             </div>
           </div>
         )}
 
         {/* Progress dots */}
-        <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "24px" }}>
-          {[0,1,2,3,4].map(i => (
-            <div key={i} style={{ width: i === step ? "24px" : "8px", height: "8px", borderRadius: "4px", background: i === step ? S.accent : S.border, transition: "all 0.3s ease" }} />
+        <div style={{ display: "flex", justifyContent: "center", gap: "6px", marginTop: "20px" }}>
+          {[0,1,2,3].map(i => (
+            <div key={i} style={{ width: i === step ? "20px" : "6px", height: "6px", borderRadius: "3px", background: i === step ? S.accent : S.border, transition: "all 0.3s ease" }} />
           ))}
         </div>
       </div>
@@ -2067,7 +1894,7 @@ export default function Home() {
     return () => { if (timerIntervalRef.current) clearInterval(timerIntervalRef.current); };
   }, []);
 
-  const boostMultiplier = parseFloat(cashBoost) / 100 || 0;
+  const boostMultiplier = cashBoost !== "" ? parseFloat(cashBoost) / 100 : 0;
   const allTargets      = useMemo<Target[]>(() => [...defaultTargets, ...customTargets], [customTargets]);
   const activeTarget    = allTargets.find((t) => t.id === target) ?? allTargets[0];
 
@@ -2090,7 +1917,7 @@ export default function Home() {
     setVisibleMachines((prev) => ({ ...prev, [type]: { ...prev[type], [name]: !prev[type][name] } }));
   };
 
-  const updateInventory = (plot: PlotKey, type: "large" | "small", machine: string, delta: number) => {
+  const updateInventory = useCallback((plot: PlotKey, type: "large" | "small", machine: string, delta: number) => {
     setInventory((prev) => {
       const plotData = prev[plot];
       const typeData = plotData?.[type] ?? {};
@@ -2098,7 +1925,7 @@ export default function Home() {
       const next     = Math.max(0, current + delta);
       return { ...prev, [plot]: { ...plotData, [type]: { ...typeData, [machine]: next } } };
     });
-  };
+  }, []);
 
   const invResult = useMemo(() => calcInventory(inventory, refinerySize, plotOwned), [inventory, refinerySize, plotOwned]);
 
