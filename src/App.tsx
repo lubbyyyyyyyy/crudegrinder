@@ -257,10 +257,10 @@ function formatTime(s: number): string {
 }
 
 function formatNum(n: number): string {
-  if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
-  if (n >= 1e9)  return (n / 1e9).toFixed(2)  + "B";
-  if (n >= 1e6)  return (n / 1e6).toFixed(1)  + "M";
-  if (n >= 1e3)  return (n / 1e3).toFixed(1)  + "K";
+  if (n >= 1e12) { const v = n / 1e12; return (v % 1 === 0 ? v.toFixed(0) : v % 0.1 === 0 ? v.toFixed(1) : v.toFixed(2)) + "T"; }
+  if (n >= 1e9)  { const v = n / 1e9;  return (v % 1 === 0 ? v.toFixed(0) : v % 0.1 === 0 ? v.toFixed(1) : v.toFixed(2)) + "B"; }
+  if (n >= 1e6)  { const v = n / 1e6;  return (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) + "M"; }
+  if (n >= 1e3)  { const v = n / 1e3;  return (v % 1 === 0 ? v.toFixed(0) : v.toFixed(1)) + "K"; }
   return Math.round(n).toString();
 }
 
@@ -408,14 +408,7 @@ function useSaved<T>(key: string, defaultValue: T, migrate?: (val: any) => T): [
   useEffect(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
-      try {
-        const serialized = JSON.stringify(val);
-        if (typeof requestIdleCallback !== "undefined") {
-          requestIdleCallback(() => { try { localStorage.setItem(LS_PREFIX + key, serialized); } catch {} });
-        } else {
-          localStorage.setItem(LS_PREFIX + key, serialized);
-        }
-      } catch {}
+      try { localStorage.setItem(LS_PREFIX + key, JSON.stringify(val)); } catch {}
     }, 1500);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, [key, val]);
@@ -963,8 +956,11 @@ interface CompareTabProps {
 
 function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, setCompPlot, sellRate, production, boostMultiplier }: CompareTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
-  const m1   = machines.large[parseInt(compFrom)] ?? machines.large[0];
-  const m2   = machines.large[parseInt(compTo)]   ?? machines.large[1];
+  const fromIdx = parseInt(compFrom) || 0;
+  const rawToIdx = parseInt(compTo) || 1;
+  const toIdx = rawToIdx > fromIdx ? rawToIdx : fromIdx + 1;
+  const m1   = machines.large[fromIdx] ?? machines.large[0];
+  const m2   = machines.large[toIdx]   ?? machines.large[machines.large.length - 1];
   const prod1 = m1.base * compPlot, prod2 = m2.base * compPlot, gain = prod2 - prod1;
   const effectiveRate  = (parseFloat(sellRate) || 15) * boostMultiplier;
   const gasForUpgrade  = effectiveRate > 0 ? m2.cost / effectiveRate : 0;
@@ -976,18 +972,18 @@ function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, set
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
           <div style={labelStyle}>Current</div>
-          <select value={compFrom} onChange={e => {
+          <select value={fromIdx} onChange={e => {
             const newFrom = parseInt(e.target.value);
             setCompFrom(e.target.value);
-            if (parseInt(compTo) <= newFrom) setCompTo(String(newFrom + 1));
+            if (toIdx <= newFrom) setCompTo(String(newFrom + 1));
           }} style={{ ...inputStyle, cursor: "pointer" }}>
             {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
           </select>
         </div>
         <div>
           <div style={labelStyle}>Upgrade</div>
-          <select value={compTo} onChange={e => setCompTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-            {machines.large.map((m, i) => i > parseInt(compFrom) ? <option key={i} value={i}>{m.name}</option> : null)}
+          <select value={toIdx} onChange={e => setCompTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+            {machines.large.map((m, i) => i > fromIdx ? <option key={i} value={i}>{m.name}</option> : null)}
           </select>
         </div>
       </div>
@@ -1010,7 +1006,7 @@ function CompareTab({ S, compFrom, setCompFrom, compTo, setCompTo, compPlot, set
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-        <StatBox label="Gain" value={"+" + gain.toLocaleString() + "/s"} color={gain > 0 ? S.green : S.red} S={S} />
+        <StatBox label="Gain" value={(gain >= 0 ? "+" : "") + gain.toLocaleString() + "/s"} color={gain > 0 ? S.green : S.red} S={S} />
         <StatBox label="Cost" value={"$" + formatNum(m2.cost)} S={S} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
@@ -1816,7 +1812,7 @@ export default function Home() {
   const [cashBoost, setCashBoost]       = useSaved<string>("boost", "0");
   const [refCap, setRefCap]             = useSaved<number>("refCap", 1000000);
   const [compFrom, setCompFrom]         = useSaved<string>("c1", "0");
-  const [compTo, setCompTo]             = useSaved<string>("c2", "1");
+  const [compTo, setCompTo]             = useSaved<string>("c2", String(machines.large.length - 1));
   const [compPlot, setCompPlot]         = useSaved<number>("cP", 2);
   const [inventory, setInventory]       = useSaved<InventoryState>("inv", makeEmptyInventory(), migrateInventory);
   const [plotOwned, setPlotOwned]       = useSaved<PlotOwned>("plotOwned2", makeDefaultPlotOwned(), migratePlotOwned);
