@@ -1157,7 +1157,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
       sum + (plotState[pk] ?? []).filter(d => d.base < toDrill.base).length, 0);
     if (totalToUpgrade === 0) return { alreadyDone: true, toDrill, bestPlot };
 
-    const steps: { slotNum: number; sellDrill: string; sellValue: number; cascadePath: string; netCost: number; gasNeeded: number; timeS: number; prodAfter: number; cumulativeTime: number; }[] = [];
+    const steps: { slotNum: number; buyDrill: string; sellDrill: string; sellValue: number; cascadePath: string; netCost: number; gasNeeded: number; timeS: number; prodAfter: number; cumulativeTime: number; }[] = [];
     let currentProd = upgProd;
     let cumulativeTime = 0;
 
@@ -1170,8 +1170,32 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
       }
       if (!weakest) break;
 
+      // Pick best drill: highest tier affordable within 7 days of grind
+      // If nothing affordable in 7 days, pick the one closest to 7 days
+      let bestDrill = toDrill;
+      if (upgEffectiveRate > 0 && currentProd > 0) {
+        const maxAffordSecs = 7 * 24 * 3600; // 7 day threshold
+        let bestAffordable: typeof toDrill | null = null;
+        let closestOver: typeof toDrill | null = null;
+        let closestOverTime = Infinity;
+        for (const candidate of machines.large) {
+          if (candidate.base <= weakest.base) continue;
+          if (candidate.base > toDrill.base) break;
+          const sellBack = weakest.cost * 0.1;
+          const net = Math.max(0, candidate.cost - sellBack);
+          const affordSecs = net / (currentProd * upgEffectiveRate);
+          if (affordSecs <= maxAffordSecs) {
+            bestAffordable = candidate; // keep updating — we want the highest affordable
+          } else if (!closestOver || affordSecs < closestOverTime) {
+            closestOver = candidate;
+            closestOverTime = affordSecs;
+          }
+        }
+        // Pick highest affordable within 7 days, else pick the closest one over
+        bestDrill = bestAffordable ?? closestOver ?? toDrill;
+      }
       plotState[targetPlot].shift();
-      plotState[targetPlot].push({ name: toDrill.name, base: toDrill.base, cost: toDrill.cost });
+      plotState[targetPlot].push({ name: bestDrill.name, base: bestDrill.base, cost: bestDrill.cost });
       plotState[targetPlot].sort((a, b) => a.base - b.base);
 
       let displaced: { name: string; base: number; cost: number } | null = weakest;
@@ -1198,7 +1222,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
         if (!firstMove) firstMove = "Sell " + displaced.name + " (−90%)";
       }
 
-      const netCost = Math.max(0, toDrill.cost - finalSellValue);
+      const netCost = Math.max(0, bestDrill.cost - finalSellValue);
       const gasNeeded = upgEffectiveRate > 0 ? netCost / upgEffectiveRate : 0;
       const timeS = currentProd > 0 ? gasNeeded / currentProd : 0;
       cumulativeTime += timeS;
@@ -1215,7 +1239,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
       }
       currentProd = newProd;
 
-      steps.push({ slotNum: step + 1, sellDrill: weakest.name, sellValue: finalSellValue, cascadePath: firstMove || "Empty slot", netCost, gasNeeded, timeS, prodAfter: Math.round(currentProd), cumulativeTime });
+      steps.push({ slotNum: step + 1, buyDrill: bestDrill.name, sellDrill: weakest.name, sellValue: finalSellValue, cascadePath: firstMove || "Empty slot", netCost, gasNeeded, timeS, prodAfter: Math.round(currentProd), cumulativeTime });
     }
 
     return { steps, totalTime: cumulativeTime, maxSlots: steps.length, toDrill, bestPlot, currentProd };
@@ -1268,7 +1292,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
                 <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
                   {session.steps.map((step: any, i: number) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "4px 0", borderBottom: i < session.steps.length - 1 ? "1px solid " + S.border : "none" }}>
-                      <span style={{ color: S.text }}>Buy {(cascadeResult as any).toDrill.name}</span>
+                      <span style={{ color: S.text }}>Buy {step.buyDrill}</span>
                       <span style={{ color: S.dim, fontSize: "11px" }}>{step.cascadePath}</span>
                       <span style={{ color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</span>
                     </div>
@@ -1319,11 +1343,13 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
 
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {(cascadeResult as any).steps.map((step: any, i: number) => {
+            {(() => {
+              const flaggedPlots = new Set<string>();
+              return (cascadeResult as any).steps.map((step: any, i: number) => {
               // Plot check: find the best unowned plot where ROI beats next drill
               let plotFlag: { plotKey: PlotKey; plotLabel: string; plotCost: number; plotSaveTime: number; plotROI: number; drillROI: number } | null = null;
               if (upgEffectiveRate > 0 && step.prodAfter > 0) {
-                const plotCheckOrder: PlotKey[] = ["3x","5x","2x","1x"];
+                const plotCheckOrder: PlotKey[] = ["2x","3x","5x","1x"];
                 for (const pk of plotCheckOrder) {
                   const owned = (plotOwned[pk] || []);
                   const nextUnownedIdx = owned.findIndex((v: boolean) => !v);
@@ -1334,11 +1360,13 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
                   const newSlots = plotCfg[pk].largePer;
                   const extraProd = newSlots * (cascadeResult as any).toDrill.base * plotCfg[pk].mult;
                   const plotROI = extraProd > 0 ? plotCost / (extraProd * upgEffectiveRate) : Infinity;
-                  const drillCost = (cascadeResult as any).toDrill.cost;
-                  const drillProdGain = (cascadeResult as any).toDrill.base * plotCfg[(cascadeResult as any).bestPlot].mult;
+                  const buyDrillObj = machines.large.find(m => m.name === step.buyDrill) ?? (cascadeResult as any).toDrill;
+                  const drillProdGain = buyDrillObj.base * plotCfg[(cascadeResult as any).bestPlot].mult;
+                  const drillCost = buyDrillObj.cost;
                   const drillROI = drillProdGain > 0 ? drillCost / (drillProdGain * upgEffectiveRate) : Infinity;
-                  if (plotROI < drillROI) {
+                  if (plotROI < drillROI && !flaggedPlots.has(pk)) {
                     plotFlag = { plotKey: pk, plotLabel: plotUnlockCosts[pk][nextUnownedIdx]?.label ?? "", plotCost, plotSaveTime, plotROI, drillROI };
+                    flaggedPlots.add(pk);
                     break;
                   }
                 }
@@ -1349,7 +1377,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
                 <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{step.slotNum}</span>
-                    <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {(cascadeResult as any).toDrill.name}</span>
+                    <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {step.buyDrill}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     {plotFlag && (
@@ -1392,7 +1420,8 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
               </div>
               </React.Fragment>
               );
-            })}
+            });
+          })()}
           </div>
         </div>
       ))}
@@ -1888,8 +1917,8 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
   const finish = () => {
     // Auto-enable the top 4 large + Mini Ruby + Quantum in visible machines
     const vis: VisibleMachines = {
-      large: Object.fromEntries(machines.large.map(m => [m.name, m.base >= 1500])),
-      small: Object.fromEntries(machines.small.map(m => [m.name, m.name === "Mini Ruby" || m.name === "Quantum"])),
+      large: Object.fromEntries(machines.large.map(m => [m.name, false])),
+      small: Object.fromEntries(machines.small.map(m => [m.name, false])),
     };
     onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis, theme: selectedTheme, upgradeMode: upgradeModeLocal });
   };
@@ -2242,6 +2271,7 @@ export default function Home() {
     refinerySize: RefinerySize;
     visibleMachines: VisibleMachines;
     theme: string;
+    upgradeMode: "cascade" | "afk";
   }) => {
     setProduction(data.production);
     setSellRate(data.sellRate);
