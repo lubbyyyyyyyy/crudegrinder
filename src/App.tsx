@@ -3,7 +3,7 @@
 // Fix 1: All tab components are top-level (not nested inside App) to prevent focus loss on re-render
 // Fix 2: Upgrader now shows per-step drill purchase recommendations and skip advice
 
-import { useState, useMemo, useEffect, useRef, useCallback, ReactNode, CSSProperties } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback, ReactNode, CSSProperties } from "react";
 
 // ── Constants ──
 const PLOTS = ["5x", "3x", "2x", "1x"] as const;
@@ -15,7 +15,7 @@ type TabKey = typeof TABS[number];
 const LS_PREFIX = "cg_";
 const CHANGELOG_VERSION = "1.4";
 const CHANGELOG: { version: string; date: string; notes: string[] }[] = [
-  { version: "1.4", date: "Apr 2026", notes: ["Upgrade tab now uses cascade simulation across all plots", "AFK Planner mode added to Upgrade tab", "Settings panel with themes, plots & refinery", "Optimizer suggestions now budget & cascade aware"] },
+  { version: "1.4", date: "Apr 2026", notes: ["Cascade & AFK Planner upgrade modes, settings panel, smarter optimizer suggestions."] },
   { version: "1.3", date: "Apr 2026", notes: ["Uranium Drill & 25M refinery added", "Direct upgrade mode with full domino cascade", "Plot grid layout matching in-game map", "M/B toggle for gasoline inputs"] },
   { version: "1.2", date: "Apr 2026", notes: ["Decision Maker removed, Compare tab improved", "Forest, Cherry & Crimson themes reworked", "Onboarding flow redesigned to 3 steps"] },
   { version: "1.1", date: "Apr 2026", notes: ["Cloudflare deployment", "Timer, inventory tracking, optimizer added"] },
@@ -138,6 +138,14 @@ const plotUnlockCosts: Record<PlotKey, { label: string; cost: string }[]> = {
   "5x": [
     { label: "Plot 1", cost: "$99T" },
   ],
+};
+
+// Numeric plot costs in dollars
+const plotUnlockCostsNum: Record<PlotKey, number[]> = {
+  "1x": [0, 5e3, 20e3, 50e3, 150e3, 500e3],
+  "2x": [2.5e6, 100e6, 500e6],
+  "3x": [100e9, 1e12],
+  "5x": [99e12],
 };
 
 type RefinerySize = "none" | "2x2" | "2x1" | "1x1";
@@ -1311,15 +1319,55 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
 
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {(cascadeResult as any).steps.map((step: any, i: number) => (
-              <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+            {(cascadeResult as any).steps.map((step: any, i: number) => {
+              // Plot check: find the best unowned plot where ROI beats next drill
+              let plotFlag: { plotKey: PlotKey; plotLabel: string; plotCost: number; plotSaveTime: number; plotROI: number; drillROI: number } | null = null;
+              if (upgEffectiveRate > 0 && step.prodAfter > 0) {
+                const plotCheckOrder: PlotKey[] = ["3x","5x","2x","1x"];
+                for (const pk of plotCheckOrder) {
+                  const owned = (plotOwned[pk] || []);
+                  const nextUnownedIdx = owned.findIndex((v: boolean) => !v);
+                  if (nextUnownedIdx === -1) continue;
+                  const plotCost = plotUnlockCostsNum[pk][nextUnownedIdx] ?? 0;
+                  if (plotCost === 0) continue;
+                  const plotSaveTime = plotCost / (step.prodAfter * upgEffectiveRate);
+                  const newSlots = plotCfg[pk].largePer;
+                  const extraProd = newSlots * (cascadeResult as any).toDrill.base * plotCfg[pk].mult;
+                  const plotROI = extraProd > 0 ? plotCost / (extraProd * upgEffectiveRate) : Infinity;
+                  const drillCost = (cascadeResult as any).toDrill.cost;
+                  const drillProdGain = (cascadeResult as any).toDrill.base * plotCfg[(cascadeResult as any).bestPlot].mult;
+                  const drillROI = drillProdGain > 0 ? drillCost / (drillProdGain * upgEffectiveRate) : Infinity;
+                  if (plotROI < drillROI) {
+                    plotFlag = { plotKey: pk, plotLabel: plotUnlockCosts[pk][nextUnownedIdx]?.label ?? "", plotCost, plotSaveTime, plotROI, drillROI };
+                    break;
+                  }
+                }
+              }
+              return (
+              <React.Fragment key={i}>
+              <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
                 <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{step.slotNum}</span>
                     <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {(cascadeResult as any).toDrill.name}</span>
                   </div>
-                  <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    {plotFlag && (
+                      <button onClick={() => { const el = document.getElementById("plotflag-" + i); if (el) el.style.display = el.style.display === "none" ? "block" : "none"; }} style={{ fontSize: "12px", background: "transparent", border: "none", cursor: "pointer", padding: "0" }} title="Plot purchase suggestion">🚩</button>
+                    )}
+                    <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
+                  </div>
                 </div>
+                {plotFlag && (
+                  <div id={"plotflag-" + i} style={{ display: "none", background: "rgba(255,213,80,0.08)", borderBottom: "1px solid " + S.border, padding: "8px 12px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: S.gold, marginBottom: "2px" }}>
+                      Consider buying {plotFlag.plotKey} {plotFlag.plotLabel} ({formatNum(plotFlag.plotCost) }) here
+                    </div>
+                    <div style={{ fontSize: "10px", color: S.dim }}>
+                      Plot ROI {formatTime(plotFlag.plotROI)} vs next drill ROI {formatTime(plotFlag.drillROI)}
+                    </div>
+                  </div>
+                )}
                 <div style={{ padding: "8px 12px" }}>
                   <div style={{ fontSize: "11px", color: S.dim, marginBottom: "6px" }}>↓ {step.cascadePath}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "4px" }}>
@@ -1342,7 +1390,9 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
                   </div>
                 </div>
               </div>
-            ))}
+              </React.Fragment>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -1693,20 +1743,11 @@ function ChangelogSection({ S, changelogSeen, setChangelogSeen }: { S: Theme; ch
       </button>
       {open && (
         <div style={{ marginTop: "8px", textAlign: "left" }}>
-          {CHANGELOG.map((entry, i) => (
-            <div key={i} style={{ marginBottom: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                <span style={{ fontSize: "11px", fontWeight: 700, color: S.accent }}>v{entry.version}</span>
-                <span style={{ fontSize: "10px", color: S.dim }}>{entry.date}</span>
-                {i === 0 && <span style={{ fontSize: "9px", fontWeight: 700, color: S.accent, background: S.hl, padding: "1px 6px", borderRadius: "4px" }}>LATEST</span>}
-              </div>
-              {entry.notes.map((note, j) => (
-                <div key={j} style={{ fontSize: "11px", color: S.dim, padding: "2px 0 2px 10px", display: "flex", gap: "6px" }}>
-                  <span style={{ color: S.border }}>•</span><span>{note}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: S.accent }}>v{CHANGELOG[0].version}</span>
+            <span style={{ fontSize: "10px", color: S.dim }}>{CHANGELOG[0].date}</span>
+          </div>
+          <div style={{ fontSize: "11px", color: S.dim, marginTop: "2px" }}>{CHANGELOG[0].notes[0]}</div>
         </div>
       )}
     </div>
@@ -1819,6 +1860,7 @@ interface WelcomeFlowProps {
     refinerySize: RefinerySize;
     visibleMachines: VisibleMachines;
     theme: string;
+    upgradeMode: "cascade" | "afk";
   }) => void;
 }
 
@@ -1830,6 +1872,7 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
   const [owned, setOwned] = useState<PlotOwned>(makeDefaultPlotOwned());
   const [refSize, setRefSize] = useState<RefinerySize>("none");
   const [selectedTheme, setSelectedTheme] = useState("white");
+  const [upgradeModeLocal, setUpgradeModeLocal] = useState<"cascade" | "afk">("cascade");
   const S = themes[selectedTheme] ?? themes.cherry;
 
   const { inputStyle } = makeStyles(S);
@@ -1848,11 +1891,11 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
       large: Object.fromEntries(machines.large.map(m => [m.name, m.base >= 1500])),
       small: Object.fromEntries(machines.small.map(m => [m.name, m.name === "Mini Ruby" || m.name === "Quantum"])),
     };
-    onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis, theme: selectedTheme });
+    onComplete({ production: prod, sellRate: rate, cashBoost: boost, plotOwned: owned, refinerySize: refSize, visibleMachines: vis, theme: selectedTheme, upgradeMode: upgradeModeLocal });
   };
 
   const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
-  const totalSteps = 3;
+  const totalSteps = 4;
 
   return (
     <div style={{ background: S.bg, minHeight: "100vh", fontFamily: "'Segoe UI',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
@@ -1962,18 +2005,56 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
         )}
 
         {/* Step 3: Done */}
+        {/* Step 3: Settings preview */}
         {step === 3 && (
-          <div style={{ textAlign: "center" }}>
+          <div>
             <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 3 of {totalSteps}</div>
+            <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "4px" }}>Your settings</div>
+            <div style={{ fontSize: "12px", color: S.dim, marginBottom: "16px" }}>Tap the {themes[selectedTheme]?.emoji ?? "⚙"} icon in the top right anytime to come back here.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
+              {/* Theme preview */}
+              <div>
+                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Theme</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {Object.entries(themes).map(([k, v]) => (
+                    <button key={k} onClick={() => setSelectedTheme(k)} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: "20px", border: selectedTheme === k ? "2px solid " + S.accent : "1px solid " + S.border, background: selectedTheme === k ? S.hl : S.card, color: selectedTheme === k ? S.accent : S.dim, cursor: "pointer", fontSize: "12px", fontWeight: selectedTheme === k ? 700 : 400 }}>
+                      <span>{v.emoji}</span><span>{v.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Upgrade mode preview */}
+              <div>
+                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Upgrade Mode</div>
+                <div style={{ display: "flex", borderRadius: "8px", overflow: "hidden", border: "1px solid " + S.border }}>
+                  {([{ val: "cascade", label: "Grind" }, { val: "afk", label: "AFK Planner" }] as const).map(opt => (
+                    <button key={opt.val} onClick={() => setUpgradeModeLocal(opt.val)} style={{ flex: 1, padding: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "none", background: upgradeModeLocal === opt.val ? S.accent : S.card, color: upgradeModeLocal === opt.val ? "#fff" : S.dim }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Grind = step by step cascade · AFK Planner = plan by session length</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
+              <button onClick={() => setStep(4)} style={{ flex: 2, padding: "12px", borderRadius: "8px", fontSize: "13px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Next →</button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 4: You're all set */}
+        {step === 4 && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: S.dim, marginBottom: "4px" }}>Step 4 of {totalSteps}</div>
             <div style={{ fontSize: "20px", fontWeight: 700, color: S.text, marginBottom: "8px" }}>You're all set</div>
             <div style={{ fontSize: "13px", color: S.dim, marginBottom: "28px", lineHeight: "1.7" }}>
               Start on the <strong style={{ color: S.accent }}>Calc</strong> tab for grind times.<br/>
               Set up your machines in <strong style={{ color: S.accent }}>Inventory</strong> for smarter suggestions.<br/>
-              Use <strong style={{ color: S.accent }}>Upgrade</strong> in Grind or AFK Planner mode.<br/>
-              Tap the {themes[selectedTheme]?.emoji ?? "⚙"} icon anytime to change themes, plots &amp; more.
+              Use <strong style={{ color: S.accent }}>Upgrade</strong> in Grind or AFK Planner mode.
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
-              <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
+              <button onClick={() => setStep(3)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
               <button onClick={finish} style={{ flex: 2, padding: "14px", borderRadius: "10px", fontSize: "15px", fontWeight: 700, cursor: "pointer", border: "none", background: S.accent, color: "#fff" }}>Let's go</button>
             </div>
           </div>
@@ -1981,7 +2062,7 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
 
         {/* Progress dots */}
         <div style={{ display: "flex", justifyContent: "center", gap: "6px", marginTop: "20px" }}>
-          {[0,1,2,3].map(i => (
+          {[0,1,2,3,4].map(i => (
             <div key={i} style={{ width: i === step ? "20px" : "6px", height: "6px", borderRadius: "3px", background: i === step ? S.accent : S.border, transition: "all 0.3s ease" }} />
           ))}
         </div>
@@ -2138,7 +2219,8 @@ export default function Home() {
   const clearAllData = () => {
     if (!confirm("Reset all saved data? This clears everything.")) return;
     Object.keys(localStorage).filter(k => k.startsWith(LS_PREFIX)).forEach(k => localStorage.removeItem(k));
-    window.location.reload();
+    setSetupDone(false);
+    setTheme("white");
   };
 
   // Theme picker ref
@@ -2168,6 +2250,7 @@ export default function Home() {
     setRefinerySize(data.refinerySize);
     setVisibleMachines(data.visibleMachines);
     setTheme(data.theme);
+    setUpgradeMode(data.upgradeMode);
     setSetupDone(true);
   };
 
