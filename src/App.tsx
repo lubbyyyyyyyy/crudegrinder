@@ -13,6 +13,24 @@ const TABS = ["Calc", "Inventory", "Compare", "Upgrade", "Optimizer", "Guide"] a
 type TabKey = typeof TABS[number];
 
 const LS_PREFIX = "cg_";
+const CHANGELOG_VERSION = "1.4";
+const CHANGELOG: { version: string; date: string; notes: string[] }[] = [
+  { version: "1.4", date: "Apr 2026", notes: ["Upgrade tab now uses cascade simulation across all plots", "AFK Planner mode added to Upgrade tab", "Settings panel with themes, plots & refinery", "Optimizer suggestions now budget & cascade aware"] },
+  { version: "1.3", date: "Apr 2026", notes: ["Uranium Drill & 25M refinery added", "Direct upgrade mode with full domino cascade", "Plot grid layout matching in-game map", "M/B toggle for gasoline inputs"] },
+  { version: "1.2", date: "Apr 2026", notes: ["Decision Maker removed, Compare tab improved", "Forest, Cherry & Crimson themes reworked", "Onboarding flow redesigned to 3 steps"] },
+  { version: "1.1", date: "Apr 2026", notes: ["Cloudflare deployment", "Timer, inventory tracking, optimizer added"] },
+];
+
+const LATEST_UPDATE = {
+  version: "1.3",
+  date: "20 Apr 2026",
+  notes: [
+    "Upgrade tab now has Grind Mode & AFK Planner — cascade simulation across all plots",
+    "Settings panel — change theme, plots, refinery & upgrade mode in one place",
+    "Uranium Drill & 25M Refinery added",
+    "Optimizer suggestions now budget & cascade aware",
+  ]
+};
 
 const PACK_EXCLUSIVE: string[] = ["Mini Diamond Drill", "Mini Multi Drill"];
 
@@ -230,11 +248,12 @@ const defaultTargets: Target[] = [
 
 interface FormulaEntry { name: string; formula: string; example: string; }
 const formulasList: FormulaEntry[] = [
-  { name: "Effective Rate",   formula: "Rate × (CashBoost/100)",    example: "$15 × 2.85 = $42.75/gas"       },
-  { name: "Gas Needed",       formula: "Cost / Eff Rate",            example: "$9B / $42.75 = 210.5M"         },
-  { name: "Grind Time",       formula: "Gas / Prod/s",               example: "210.5M / 80k = 43.8 min"       },
-  { name: "Output",           formula: "Base × Plot Mult",           example: "4,500 × 3 = 13,500/s"          },
-  { name: "Savings (X mins)", formula: "Prod × EffRate × Time(s)",   example: "80k × $42.75 × 600 = $2.05B"  },
+  { name: "Effective Rate",   formula: "Sell Rate × (Cash Boost % / 100)",  example: "$15 × (385/100) = $57.75/gas"    },
+  { name: "Gas Needed",       formula: "Target Cost / Effective Rate",        example: "$437.5B / $57.75 = 7.57B gas"    },
+  { name: "Grind Time",       formula: "Gas Needed / Production/s",           example: "7.57B / 440k = 4h 47m"           },
+  { name: "Output",           formula: "Drill Base × Plot Multiplier",        example: "12,500 × 3 = 37,500/s on 3x"    },
+  { name: "Cascade Net Cost", formula: "New Drill Cost − (Old Drill × 0.1)",  example: "$437.5B − $18.75B = $418.75B"   },
+  { name: "Sell Loss",        formula: "Machine Cost × 90%",                  example: "$187.5B × 90% = $168.75B lost"  },
 ];
 
 const REFINERY_PRESETS = [50, 150, 250, 500, 800, 1500, 2000, 5000, 7500, 12500, 200000, 400000, 1000000, 5000000, 15000000, 25000000];
@@ -725,17 +744,20 @@ interface PlotSettingsPanelProps {
   refinerySize: RefinerySize;
   setRefinerySize: React.Dispatch<React.SetStateAction<RefinerySize>>;
   onClose: () => void;
+  inline?: boolean;
 }
 
-function PlotSettingsPanel({ S, plotOwned, setPlotOwned, refinerySize, setRefinerySize, onClose }: PlotSettingsPanelProps) {
+function PlotSettingsPanel({ S, plotOwned, setPlotOwned, refinerySize, setRefinerySize, onClose, inline }: PlotSettingsPanelProps) {
   const plotOrder: PlotKey[] = ["1x", "2x", "3x", "5x"];
   const plotColors: Record<PlotKey, string> = { "1x": S.green, "2x": S.blue, "3x": "#D97706", "5x": "#9333EA" };
   return (
-    <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-        <span style={{ fontSize: "12px", fontWeight: 700, color: S.text }}>Plots & Refinery</span>
-        <button onClick={onClose} style={{ padding: "3px 10px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Done</button>
-      </div>
+    <div style={inline ? {} : { background: S.card, border: "1px solid " + S.border, borderRadius: "12px", padding: "14px" }}>
+      {!inline && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: S.text }}>Plots & Refinery</span>
+          <button onClick={onClose} style={{ padding: "3px 10px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Done</button>
+        </div>
+      )}
       {/* Plots — map grid layout matching in-game layout */}
       {/* Row 1: 3x | 5x | 3x */}
       {/* Row 2: 2x | 2x | 2x */}
@@ -927,20 +949,7 @@ function InventoryTab({ S, inventory, invResult, visibleMachines, showManage, se
       </div>
       {PLOTS.map(renderPlot)}
 
-      <button onClick={() => setShowPlotSettings(!showPlotSettings)} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim, display: "flex", alignItems: "center", gap: "6px", alignSelf: "flex-start" }}>
-        Plot & Refinery Settings
-      </button>
 
-      {showPlotSettings && (
-        <PlotSettingsPanel
-          S={S}
-          plotOwned={plotOwned}
-          setPlotOwned={setPlotOwned}
-          refinerySize={refinerySize}
-          setRefinerySize={setRefinerySize}
-          onClose={() => setShowPlotSettings(false)}
-        />
-      )}
     </div>
   );
 }
@@ -1093,164 +1102,254 @@ interface UpgradeTabProps {
   upgTo: string; setUpgTo: (v: string) => void;
   upgPlot: PlotKey; setUpgPlot: (v: PlotKey) => void;
   sellRate: string; production: string; boostMultiplier: number;
+  inventory: InventoryState; plotOwned: PlotOwned; refinerySize: RefinerySize;
+  upgradeMode: "cascade" | "afk"; afkHours: string;
 }
 
-function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPlot, sellRate, production, boostMultiplier }: UpgradeTabProps) {
+function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPlot, sellRate, production, boostMultiplier, inventory, plotOwned, refinerySize, upgradeMode, afkHours }: UpgradeTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
-  const upgFromIdx = parseInt(upgFrom);
-  const upgToIdx   = parseInt(upgTo);
+  const upgToIdx = parseInt(upgTo);
   const upgEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
-  const upgProd          = parseFloat(production) || 0;
-  const cfg = plotCfg[upgPlot];
+  const upgProd = parseFloat(production) || 0;
 
-  const upgradePath = useMemo<UpgradeStep[]>(() =>
-    calcUpgradePath(upgFromIdx, upgToIdx, upgEffectiveRate, upgProd, cfg.plots, cfg.largePer),
-    [upgFromIdx, upgToIdx, upgEffectiveRate, upgProd, cfg.plots, cfg.largePer]
-  );
+  const cascadeResult = useMemo(() => {
+    const toDrill = machines.large[upgToIdx];
+    if (!toDrill) return null;
 
-  const upgTotalProdGain = upgToIdx > upgFromIdx ? machines.large[upgToIdx].base - machines.large[upgFromIdx].base : 0;
+    const countOfGoal = (["1x","2x","3x","5x"] as PlotKey[]).reduce((s, pk) =>
+      s + (inventory[pk]?.large?.[toDrill.name] ?? 0), 0);
+    const hasHigher = (["1x","2x","3x","5x"] as PlotKey[]).some(pk =>
+      Object.entries(inventory[pk]?.large ?? {}).some(([n, c]) =>
+        (c as number) > 0 && (baseMap[n] ?? 0) > toDrill.base));
+    const hasLower = (["1x","2x","3x","5x"] as PlotKey[]).some(pk =>
+      Object.entries(inventory[pk]?.large ?? {}).some(([n, c]) =>
+        (c as number) > 0 && (baseMap[n] ?? 0) < toDrill.base));
+    // Only surpassed if you have nothing below the goal (nothing to upgrade)
+    if (countOfGoal === 0 && hasHigher && !hasLower) return { surpassed: true, toDrill };
+
+    const plotDownOrder: PlotKey[] = ["5x","3x","2x","1x"];
+    const ownedPlots = plotDownOrder.filter(pk => (plotOwned[pk] || []).some(Boolean));
+    const bestPlot = ownedPlots[0] ?? "1x";
+
+    const plotState: Record<string, { name: string; base: number; cost: number }[]> = {};
+    for (const pk of ownedPlots) {
+      const ownedCount = (plotOwned[pk] || []).filter(Boolean).length;
+      const maxOnPlot = ownedCount * plotCfg[pk].largePer - (pk === "1x" && refinerySize === "2x2" ? 1 : 0);
+      const drills: { name: string; base: number; cost: number }[] = [];
+      for (const [name, count] of Object.entries(inventory[pk]?.large ?? {})) {
+        for (let i = 0; i < (count as number) && drills.length < maxOnPlot; i++) {
+          drills.push({ name, base: baseMap[name] ?? 0, cost: machines.large.find(m => m.name === name)?.cost ?? 0 });
+        }
+      }
+      drills.sort((a, b) => a.base - b.base);
+      plotState[pk] = drills;
+    }
+
+    const totalToUpgrade = ownedPlots.reduce((sum, pk) =>
+      sum + (plotState[pk] ?? []).filter(d => d.base < toDrill.base).length, 0);
+    if (totalToUpgrade === 0) return { alreadyDone: true, toDrill, bestPlot };
+
+    const steps: { slotNum: number; sellDrill: string; sellValue: number; cascadePath: string; netCost: number; gasNeeded: number; timeS: number; prodAfter: number; cumulativeTime: number; }[] = [];
+    let currentProd = upgProd;
+    let cumulativeTime = 0;
+
+    for (let step = 0; step < totalToUpgrade; step++) {
+      let targetPlot = bestPlot;
+      let weakest: { name: string; base: number; cost: number } | undefined;
+      for (const pk of ownedPlots) {
+        const w = plotState[pk]?.[0];
+        if (w && w.base < toDrill.base) { targetPlot = pk; weakest = w; break; }
+      }
+      if (!weakest) break;
+
+      plotState[targetPlot].shift();
+      plotState[targetPlot].push({ name: toDrill.name, base: toDrill.base, cost: toDrill.cost });
+      plotState[targetPlot].sort((a, b) => a.base - b.base);
+
+      let displaced: { name: string; base: number; cost: number } | null = weakest;
+      let firstMove = "";
+      let finalSellValue = 0;
+
+      for (let pi = ownedPlots.indexOf(targetPlot) + 1; pi < ownedPlots.length && displaced; pi++) {
+        const tp = ownedPlots[pi];
+        const ts = plotState[tp] ?? [];
+        const ownedCount = (plotOwned[tp] || []).filter(Boolean).length;
+        const maxOnPlot = ownedCount * plotCfg[tp].largePer - (tp === "1x" && refinerySize === "2x2" ? 1 : 0);
+        if (!firstMove) firstMove = "Move " + displaced.name + " to " + tp;
+        if (ts.length < maxOnPlot) {
+          ts.push(displaced); ts.sort((a, b) => a.base - b.base); displaced = null;
+        } else {
+          const weakestHere = ts[0]!;
+          ts.shift(); ts.push(displaced); ts.sort((a, b) => a.base - b.base);
+          displaced = weakestHere;
+        }
+      }
+
+      if (displaced) {
+        finalSellValue = displaced.cost * 0.1;
+        if (!firstMove) firstMove = "Sell " + displaced.name + " (−90%)";
+      }
+
+      const netCost = Math.max(0, toDrill.cost - finalSellValue);
+      const gasNeeded = upgEffectiveRate > 0 ? netCost / upgEffectiveRate : 0;
+      const timeS = currentProd > 0 ? gasNeeded / currentProd : 0;
+      cumulativeTime += timeS;
+
+      let newProd = 0;
+      for (const pk of ownedPlots) {
+        // Large drills from cascade state
+        for (const d of (plotState[pk] ?? [])) newProd += d.base * plotCfg[pk].mult;
+        // Small tiles don't change during cascade — add their contribution
+        const smallMap = inventory[pk]?.small ?? {};
+        for (const [name, count] of Object.entries(smallMap)) {
+          newProd += (count as number) * (baseMap[name] ?? 0) * plotCfg[pk].mult;
+        }
+      }
+      currentProd = newProd;
+
+      steps.push({ slotNum: step + 1, sellDrill: weakest.name, sellValue: finalSellValue, cascadePath: firstMove || "Empty slot", netCost, gasNeeded, timeS, prodAfter: Math.round(currentProd), cumulativeTime });
+    }
+
+    return { steps, totalTime: cumulativeTime, maxSlots: steps.length, toDrill, bestPlot, currentProd };
+  }, [upgToIdx, upgEffectiveRate, upgProd, inventory, plotOwned, refinerySize]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       <Heading text="Upgrade Path Planner" S={S} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-        <div>
-          <div style={labelStyle}>Start Drill</div>
-          <select value={upgFrom} onChange={e => setUpgFrom(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
-            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={labelStyle}>Goal Drill</div>
-          <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
-            {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
-          </select>
-        </div>
-      </div>
-      {/* Plot selector for slot count */}
       <div>
-        <div style={labelStyle}>Plot Type (for slot count)</div>
-        <div style={{ display: "flex", gap: "6px" }}>
-          {PLOTS.map(p => <PillBtn key={p} label={p} active={upgPlot === p} onClick={() => setUpgPlot(p)} S={S} />)}
-        </div>
-        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>
-          {cfg.plots} plots × {cfg.largePer} large slots = {cfg.plots * cfg.largePer} total large slots
-        </div>
+        <div style={labelStyle}>Goal Drill</div>
+        <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
+          {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
+        </select>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Based on your inventory</div>
       </div>
-      {upgFromIdx >= upgToIdx ? (
-        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
-          Select a goal drill higher than your start drill.
-        </div>
-      ) : (
-        <>
-          <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
-            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" }}>Full Path Summary</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Total Cost</div>
-                <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum(upgradePath[upgradePath.length - 1]?.cumulativeCost ?? 0)}</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Total Time</div>
-                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime(upgradePath[upgradePath.length - 1]?.cumulativeTime ?? 0)}</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, textTransform: "uppercase", marginBottom: "2px" }}>Prod Gain</div>
-                <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>+{upgTotalProdGain.toLocaleString()}/s</div>
-              </div>
-            </div>
+      {upgradeMode === "afk" && (() => {
+        const afkSecs = (parseFloat(afkHours) || 8) * 3600;
+        if (!cascadeResult || (cascadeResult as any).surpassed || (cascadeResult as any).alreadyDone) return null;
+        const steps: any[] = (cascadeResult as any).steps ?? [];
+        // Group steps into AFK sessions
+        const sessions: { sessionNum: number; steps: any[]; endTime: number; endProd: number }[] = [];
+        let sessionStart = 0;
+        let sessionSteps: any[] = [];
+        let prevTime = 0;
+        for (const step of steps) {
+          if (step.cumulativeTime - sessionStart > afkSecs && sessionSteps.length > 0) {
+            sessions.push({ sessionNum: sessions.length + 1, steps: sessionSteps, endTime: sessionStart + afkSecs, endProd: sessionSteps[sessionSteps.length - 1].prodAfter });
+            sessionStart += afkSecs;
+            sessionSteps = [];
+          }
+          sessionSteps.push(step);
+        }
+        if (sessionSteps.length > 0) sessions.push({ sessionNum: sessions.length + 1, steps: sessionSteps, endTime: (cascadeResult as any).totalTime, endProd: sessionSteps[sessionSteps.length - 1].prodAfter });
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {(!upgProd || !upgEffectiveRate) && (
-              <div style={{ marginTop: "8px", fontSize: "11px", color: S.dim, textAlign: "center" }}>
+              <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "8px", padding: "8px" }}>
                 ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
               </div>
             )}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {upgradePath.map((step, i) => (
-              <div key={i} style={{ background: S.card, border: "1px solid " + (step.skipAdvice ? S.gold : S.border), borderRadius: "10px", overflow: "hidden" }}>
+            <div style={{ fontSize: "11px", color: S.dim, textAlign: "center" }}>
+              Showing what to buy each {afkHours}h AFK session · {sessions.length} session{sessions.length !== 1 ? "s" : ""} total
+            </div>
+            {sessions.map((session, si) => (
+              <div key={si} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
                 <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
-                    <span style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{step.from.name} → {step.to.name}</span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: S.accent, fontWeight: 700 }}>{step.to.costLabel}</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: S.accent }}>Session {session.sessionNum}</span>
+                  <span style={{ fontSize: "11px", color: S.dim }}>{session.steps.length} upgrade{session.steps.length !== 1 ? "s" : ""} · {session.endProd.toLocaleString()}/s after</span>
                 </div>
-
-                {/* Skip advice banner */}
-                {step.skipAdvice && (
-                  <div style={{ background: "rgba(255,213,80,0.12)", borderBottom: "1px solid " + S.gold, padding: "6px 12px", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ fontSize: "13px" }}>⚡</span>
-                    <span style={{ fontSize: "11px", color: S.gold, fontWeight: 600 }}>{step.skipAdvice}</span>
-                  </div>
-                )}
-
-                <div style={{ padding: "10px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Gas Needed</div>
-                    <div style={{ fontSize: "13px", color: S.blue, fontWeight: 600 }}>{upgEffectiveRate > 0 ? formatNum(step.gasNeeded) : "--"}</div>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Grind Time</div>
-                    <div style={{ fontSize: "13px", color: S.text, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
-                  </div>
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Prod Gain</div>
-                    <div style={{ fontSize: "13px", color: S.green, fontWeight: 600 }}>+{step.prodGain.toLocaleString()}/s</div>
-                  </div>
-                </div>
-
-                {/* NEW: Drill purchase recommendation */}
-                <div style={{ padding: "8px 12px", borderTop: "1px solid " + S.border, background: "rgba(0,0,0,0.03)" }}>
-                  <div style={{ fontSize: "10px", color: S.accent, fontWeight: 700, textTransform: "uppercase", marginBottom: "6px" }}>
-                    Purchase Recommendation
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
-                    <div style={{ background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
-                      <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Buy</div>
-                      <div style={{ fontSize: "13px", color: S.accent, fontWeight: 700 }}>
-                        {step.recommendedCount}× {step.to.name}
-                      </div>
-                      <div style={{ fontSize: "10px", color: S.dim }}>
-                        fills all {step.maxSlots} large slots
-                      </div>
+                <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {session.steps.map((step: any, i: number) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "4px 0", borderBottom: i < session.steps.length - 1 ? "1px solid " + S.border : "none" }}>
+                      <span style={{ color: S.text }}>Buy {(cascadeResult as any).toDrill.name}</span>
+                      <span style={{ color: S.dim, fontSize: "11px" }}>{step.cascadePath}</span>
+                      <span style={{ color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</span>
                     </div>
-                    <div style={{ background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
-                      <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Total spend</div>
-                      <div style={{ fontSize: "13px", color: S.gold, fontWeight: 700 }}>
-                        ${formatNum(step.to.cost * step.recommendedCount)}
-                      </div>
-                      <div style={{ fontSize: "10px", color: S.dim }}>
-                        ROI: {step.roiSeconds > 0 ? formatTime(step.roiSeconds) : "--"}
-                      </div>
-                    </div>
-                  </div>
-                  {/* Best small drill recommendation */}
-                  <div style={{ marginTop: "6px", background: S.hl, borderRadius: "6px", padding: "6px 8px", border: "1px solid " + S.border }}>
-                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "1px" }}>Best small drill to pair</div>
-                    <div style={{ fontSize: "12px", color: S.green, fontWeight: 600 }}>
-                      {(() => {
-                        const sorted = [...purchasableSmall].sort((a, b) => (b.base / b.tiles) - (a.base / a.tiles));
-                        const best = sorted[0];
-                        const smallSlots = cfg.plots * cfg.smallTiles;
-                        const count = Math.floor(smallSlots / best.tiles);
-                        return `${count}× ${best.name} (${best.size}) — fills ${smallSlots} small tiles`;
-                      })()}
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ padding: "6px 12px 8px", borderTop: "1px solid " + S.border, display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "10px", color: S.dim }}>Running total: <span style={{ color: S.gold, fontWeight: 600 }}>${formatNum(step.cumulativeCost)}</span></span>
-                  <span style={{ fontSize: "10px", color: S.dim }}>Time so far: <span style={{ color: S.blue, fontWeight: 600 }}>{formatTime(step.cumulativeTime)}</span></span>
+                  ))}
                 </div>
               </div>
             ))}
           </div>
-        </>
-      )}
+        );
+      })()}
+      {upgradeMode === "cascade" && (!cascadeResult ? null : (cascadeResult as any).surpassed ? (
+        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+          You have surpassed {(cascadeResult as any).toDrill.name} — pick a higher goal drill.
+        </div>
+      ) : (cascadeResult as any).alreadyDone ? (
+        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+          All slots already have {(cascadeResult as any).toDrill.name} or better!
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {(!upgProd || !upgEffectiveRate) && (
+            <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "8px", padding: "8px" }}>
+              ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
+            </div>
+          )}
+          <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" }}>
+              Grind Mode · {(cascadeResult as any).maxSlots} upgrade{(cascadeResult as any).maxSlots !== 1 ? "s" : ""} · across all plots
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Time</div>
+                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime((cascadeResult as any).totalTime)}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Cost</div>
+                <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum((cascadeResult as any).steps.reduce((s: number, st: any) => s + st.netCost, 0))}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Upgrades</div>
+                <div style={{ fontSize: "14px", color: S.accent, fontWeight: 700 }}>{(cascadeResult as any).maxSlots}</div>
+              </div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Goal Prod</div>
+                <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>{Math.round((cascadeResult as any).currentProd).toLocaleString()}/s</div>
+              </div>
+            </div>
+
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {(cascadeResult as any).steps.map((step: any, i: number) => (
+              <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{step.slotNum}</span>
+                    <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {(cascadeResult as any).toDrill.name}</span>
+                  </div>
+                  <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
+                </div>
+                <div style={{ padding: "8px 12px" }}>
+                  <div style={{ fontSize: "11px", color: S.dim, marginBottom: "6px" }}>↓ {step.cascadePath}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "4px" }}>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "9px", color: S.dim }}>Sell back</div>
+                      <div style={{ fontSize: "11px", color: step.sellValue > 0 ? S.green : S.dim, fontWeight: 600 }}>{step.sellValue > 0 ? "$" + formatNum(step.sellValue) : "—"}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "9px", color: S.dim }}>Net cost</div>
+                      <div style={{ fontSize: "11px", color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "9px", color: S.dim }}>Grind</div>
+                      <div style={{ fontSize: "11px", color: S.blue, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: "9px", color: S.dim }}>Prod after</div>
+                      <div style={{ fontSize: "11px", color: S.green, fontWeight: 600 }}>{step.prodAfter.toLocaleString()}/s</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
+
 
 // ── Optimizer Tab ──
 interface OptimizerTabProps {
@@ -1262,9 +1361,10 @@ interface OptimizerTabProps {
   invResult: InvResult;
   production: string;
   refinerySize: RefinerySize;
+  plotOwned: PlotOwned;
 }
 
-function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier, inventory, invResult, production, refinerySize }: OptimizerTabProps) {
+function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellRate, boostMultiplier, inventory, invResult, production, refinerySize, plotOwned }: OptimizerTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
   const optCfg = plotCfg[optPlot];
   if (!optCfg) return <div style={{ color: S.text }}>Invalid plot selected</div>;
@@ -1306,50 +1406,105 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
   const suggestions = useMemo<{ text: string; priority: "high" | "medium" | "low" }[]>(() => {
     const s: { text: string; priority: "high" | "medium" | "low" }[] = [];
 
-    // If plot has 0 machines, player likely doesn't own it yet
     if (!plotHasMachines) {
-      s.push({ text: `No machines on ${optPlot} plot — you may not own this plot yet. Add machines in the Inventory tab to get suggestions.`, priority: "low" });
+      s.push({ text: `No machines on ${optPlot} — add machines in Inventory first.`, priority: "low" });
       return s;
     }
 
-    if (emptyLargeSlots > 0) {
-      const bestAffordable = [...machines.large].reverse().find(m => m.cost <= optBudget || optBudget === 0);
-      if (bestAffordable) {
-        s.push({ text: `You have ${emptyLargeSlots} empty large slot${emptyLargeSlots > 1 ? "s" : ""} on ${optPlot}. Fill with ${bestAffordable.name} (${bestAffordable.costLabel}) for +${(bestAffordable.base * optCfg.mult).toLocaleString()}/s each.`, priority: "high" });
-      }
+    if (!optBudget) {
+      s.push({ text: "Set a budget above to get cascade-aware suggestions based on what you can afford right now.", priority: "low" });
+      return s;
     }
 
-    if (weakestLarge && weakestLarge.base < machines.large[machines.large.length - 1].base) {
-      const nextUp = machines.large.find(m => m.base > weakestLarge.base);
-      if (nextUp) {
-        const gain = (nextUp.base - weakestLarge.base) * optCfg.mult;
-        s.push({ text: `Upgrade ${weakestLarge.count}× ${weakestLarge.name} → ${nextUp.name} for +${gain.toLocaleString()}/s per machine (${nextUp.costLabel} each).`, priority: "medium" });
+    // Budget-aware cascade suggestions
+    const plotDownOrder: PlotKey[] = ["5x","3x","2x","1x"];
+    const bestAffordable = [...machines.large].reverse().find(m => m.cost <= optBudget);
+
+    // Weakest drill on selected plot
+    const selectedDrills = Object.entries(inventory[optPlot]?.large ?? {})
+      .filter(([_, c]) => c > 0)
+      .map(([name]) => ({ name, base: baseMap[name] ?? 0 }))
+      .sort((a, b) => a.base - b.base);
+    const weakestOnPlot = selectedDrills[0];
+
+    const fromIdx = plotDownOrder.indexOf(optPlot);
+    const nextPlotDown = plotDownOrder[fromIdx + 1] as PlotKey | undefined;
+    const nextPlotDownOwned = nextPlotDown && (plotOwned[nextPlotDown] || []).some(Boolean);
+
+    if (bestAffordable) {
+      if (emptyLargeSlots > 0) {
+        // Free slot — just buy
+        s.push({
+          text: `Buy ${bestAffordable.name} on ${optPlot} (${bestAffordable.costLabel}) — fills empty slot`,
+          priority: "high"
+        });
+      } else if (weakestOnPlot && weakestOnPlot.base < bestAffordable.base) {
+        // Cascade needed
+        const sellback = `$${formatNum((machines.large.find(m => m.name === weakestOnPlot.name)?.cost ?? 0) * 0.1)} back`;
+        const netCost = `$${formatNum(Math.max(0, bestAffordable.cost - (machines.large.find(m => m.name === weakestOnPlot.name)?.cost ?? 0) * 0.1))} net`;
+        if (!nextPlotDown || !nextPlotDownOwned) {
+          s.push({
+            text: `Buy ${bestAffordable.name} on ${optPlot} (${netCost} after selling ${weakestOnPlot.name} ${sellback})`,
+            priority: "high"
+          });
+        } else {
+          s.push({
+            text: `Buy ${bestAffordable.name} on ${optPlot} (${bestAffordable.costLabel}), Move ${weakestOnPlot.name} ${optPlot} → ${nextPlotDown}`,
+            priority: "high"
+          });
+          // What to do on next plot
+          const drillsBelow = Object.entries(inventory[nextPlotDown]?.large ?? {})
+            .filter(([_, c]) => c > 0)
+            .map(([name]) => ({ name, base: baseMap[name] ?? 0 }))
+            .sort((a, b) => a.base - b.base);
+          const weakestBelow = drillsBelow[0];
+          const nextNextPlot = plotDownOrder[fromIdx + 2] as PlotKey | undefined;
+          const nextNextOwned = nextNextPlot && (plotOwned[nextNextPlot] || []).some(Boolean);
+          if (weakestBelow && weakestBelow.base < weakestOnPlot.base) {
+            if (!nextNextPlot || !nextNextOwned) {
+              s.push({ text: `Sell ${weakestBelow.name} from ${nextPlotDown} to make room (−90%)`, priority: "medium" });
+            } else {
+              s.push({ text: `Move ${weakestBelow.name} ${nextPlotDown} → ${nextNextPlot} to make room`, priority: "medium" });
+            }
+          }
+        }
+        // Show remaining budget
+        const netSpend = Math.max(0, bestAffordable.cost - (machines.large.find(m => m.name === weakestOnPlot.name)?.cost ?? 0) * 0.1);
+        const remaining = optBudget - netSpend;
+        if (remaining > 0) {
+          const nextAffordable = [...machines.large].reverse().find(m => m.cost <= remaining);
+          if (nextAffordable && nextAffordable.name !== bestAffordable.name) {
+            s.push({ text: `$${formatNum(remaining)} left — also buy ${nextAffordable.name} on ${optPlot} (${nextAffordable.costLabel})`, priority: "medium" });
+          } else if (!nextAffordable) {
+            s.push({ text: `$${formatNum(remaining)} remaining — save toward next upgrade`, priority: "low" });
+          }
+        }
       }
+    } else if (!bestAffordable) {
+      s.push({ text: `Budget of $${formatNum(optBudget)} not enough for any large drill — cheapest is ${machines.large[0].costLabel}`, priority: "high" });
     }
 
+    // Small tiles
     if (emptySmallTiles > 0) {
-      s.push({ text: `${emptySmallTiles} empty small tile${emptySmallTiles > 1 ? "s" : ""} on ${optPlot}. Open Infinity Packs (1.5M gas) for Quantum (10% chance, ~15M gas avg) or Mini Ruby (45% chance, ~3.3M gas avg) to fill.`, priority: "medium" });
+      s.push({ text: `${emptySmallTiles} empty small tile${emptySmallTiles > 1 ? "s" : ""} on ${optPlot} — open Infinity Packs for Quantum (10%) or Mini Ruby (45%)`, priority: "medium" });
     }
 
+    // Pack upgrade
     const hasQuantums = currentSmallNames.some(m => m.name === "Quantum");
     const hasMiniRuby = currentSmallNames.some(m => m.name === "Mini Ruby");
     if (!hasQuantums && !hasMiniRuby && plotData && plotData.smallTiles > 0) {
       const worstSmall = currentSmallNames.reduce((a, b) => a.base < b.base ? a : b, currentSmallNames[0]);
       if (worstSmall && worstSmall.base < 67) {
-        s.push({ text: `Replace ${worstSmall.name} (${worstSmall.base}/s) with pack machines. Mini Ruby gives 67/s (45% drop from 1.5M gas pack). Quantum gives 175/s (10% drop).`, priority: "low" });
+        s.push({ text: `Replace ${worstSmall.name} with pack machines — Mini Ruby 67/s (45%) or Quantum 175/s (10%)`, priority: "low" });
       }
     }
 
-    if (!plots3xFilled && (optPlot === "5x")) {
-      s.push({ text: "Fill your 3x plots before buying the 5x ($99T) plot. 3x plots give better value at this stage.", priority: "high" });
-    }
-
     if (s.length === 0) {
-      s.push({ text: "Plot looks optimised! Consider upgrading to higher-tier large drills or opening Infinity Packs for better small fillers.", priority: "low" });
+      s.push({ text: "Looking good — check Upgrade tab for full grind plan", priority: "low" });
     }
 
-    return s;
-  }, [optPlot, optBudget, emptyLargeSlots, emptySmallTiles, weakestLarge, plots3xFilled, currentSmallNames, plotData, optCfg.mult, plotHasMachines]);
+    return s.filter(sg => sg.text);
+  }, [optPlot, optBudget, emptyLargeSlots, emptySmallTiles, weakestLarge, plots3xFilled, currentSmallNames, plotData, optCfg.mult, plotHasMachines, inventory, plotOwned]);
 
   interface OptResult {
     largeDrill: LargeMachine | null;
@@ -1520,13 +1675,54 @@ function OptimizerTab({ S, optPlot, setOptPlot, optBudgetB, setOptBudgetB, sellR
 }
 
 
+// ── Changelog Section ──
+function ChangelogSection({ S, changelogSeen, setChangelogSeen }: { S: Theme; changelogSeen: string; setChangelogSeen: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const hasNew = changelogSeen !== CHANGELOG_VERSION;
+
+  const handleOpen = () => {
+    setOpen(!open);
+    if (!open) setChangelogSeen(CHANGELOG_VERSION);
+  };
+
+  return (
+    <div style={{ marginTop: "6px", textAlign: "center" }}>
+      <button onClick={handleOpen} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "11px", color: S.dim, display: "inline-flex", alignItems: "center", gap: "5px", padding: "4px 8px" }}>
+        {hasNew && <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: S.accent, display: "inline-block", flexShrink: 0 }} />}
+        What's new {open ? "▲" : "▼"}
+      </button>
+      {open && (
+        <div style={{ marginTop: "8px", textAlign: "left" }}>
+          {CHANGELOG.map((entry, i) => (
+            <div key={i} style={{ marginBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: S.accent }}>v{entry.version}</span>
+                <span style={{ fontSize: "10px", color: S.dim }}>{entry.date}</span>
+                {i === 0 && <span style={{ fontSize: "9px", fontWeight: 700, color: S.accent, background: S.hl, padding: "1px 6px", borderRadius: "4px" }}>LATEST</span>}
+              </div>
+              {entry.notes.map((note, j) => (
+                <div key={j} style={{ fontSize: "11px", color: S.dim, padding: "2px 0 2px 10px", display: "flex", gap: "6px" }}>
+                  <span style={{ color: S.border }}>•</span><span>{note}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ── Formulas Tab ──
 interface FormulasTabProps {
   S: Theme;
   clearAllData: () => void;
+  changelogSeen: string;
+  setChangelogSeen: (v: string) => void;
 }
 
-function FormulasTab({ S, clearAllData }: FormulasTabProps) {
+function FormulasTab({ S, clearAllData, changelogSeen, setChangelogSeen }: FormulasTabProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
       <Heading text="Guide" S={S} />
@@ -1604,12 +1800,9 @@ function FormulasTab({ S, clearAllData }: FormulasTabProps) {
           <div style={{ fontSize: "11px", color: S.dim }}>{f.example}</div>
         </div>
       ))}
-      <div style={{ marginTop: "10px", paddingTop: "14px", borderTop: "1px solid " + S.border }}>
-        <button onClick={clearAllData} style={{ padding: "10px 20px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.red, background: "transparent", color: S.red, width: "100%" }}>
-          Reset All Saved Data
-        </button>
-        <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", marginTop: "4px" }}>Clears calculator, inventory, targets, and theme</div>
-      </div>
+
+      {/* Changelog */}
+      <ChangelogSection S={S} changelogSeen={changelogSeen} setChangelogSeen={setChangelogSeen} />
     </div>
   );
 }
@@ -1776,7 +1969,8 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
             <div style={{ fontSize: "13px", color: S.dim, marginBottom: "28px", lineHeight: "1.7" }}>
               Start on the <strong style={{ color: S.accent }}>Calc</strong> tab for grind times.<br/>
               Set up your machines in <strong style={{ color: S.accent }}>Inventory</strong> for smarter suggestions.<br/>
-              Everything auto-saves as you go.
+              Use <strong style={{ color: S.accent }}>Upgrade</strong> in Grind or AFK Planner mode.<br/>
+              Tap the {themes[selectedTheme]?.emoji ?? "⚙"} icon anytime to change themes, plots &amp; more.
             </div>
             <div style={{ display: "flex", gap: "10px" }}>
               <button onClick={() => setStep(2)} style={{ flex: 1, padding: "12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.dim }}>Back</button>
@@ -1800,9 +1994,13 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
 export default function Home() {
   const [setupDone, setSetupDone]       = useSaved<boolean>("setupDone", false);
   const [theme, setTheme]               = useSaved<string>("theme", "white");
-  const [showThemes, setShowThemes]     = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [upgradeMode, setUpgradeMode]   = useSaved<"cascade" | "afk">("upgradeMode", "cascade");
+  const [changelogSeen, setChangelogSeen] = useSaved<string>("changelogSeen", "");
+  const [afkHours, setAfkHours]         = useSaved<string>("afkHours", "8");
   const S: Theme                        = themes[theme] ?? themes.cherry;
   const [tab, setTab]                   = useSaved<TabKey>("tab", "Calc");
+  const [lastSeenVersion, setLastSeenVersion] = useSaved<string>("lastVersion", "");
   const [production, setProduction]     = useSaved<string>("prod", "");
   const [gasoline, setGasoline]         = useSaved<string>("gas", "");
   const [cash, setCash]                 = useSaved<string>("cash", "");
@@ -1946,13 +2144,13 @@ export default function Home() {
   // Theme picker ref
   const themeRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!showThemes) return;
+    if (!showSettings) return;
     const handler = (e: MouseEvent) => {
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) setShowThemes(false);
+      if (themeRef.current && !themeRef.current.contains(e.target as Node)) setShowSettings(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [showThemes]);
+  }, [showSettings]);
 
   const handleWelcomeComplete = (data: {
     production: string;
@@ -1983,25 +2181,53 @@ export default function Home() {
         <div style={{ background: S.hdr, borderBottom: "1px solid " + S.border, padding: "14px 16px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: "18px", fontWeight: 800, color: S.gold, fontStyle: "italic" }}>Crude Gains</div>
           <div style={{ position: "relative" }} ref={themeRef}>
-            <button onClick={() => setShowThemes(!showThemes)} style={{ padding: "6px 14px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: S.card, color: S.text }}>
-              {themes[theme]?.emoji ?? "🌸"}
+            <button onClick={() => setShowSettings(!showSettings)} style={{ padding: "6px 12px", borderRadius: "8px", fontSize: "13px", cursor: "pointer", border: "1px solid " + S.border, background: showSettings ? S.hl : S.card, color: S.text }}>
+              {themes[theme]?.emoji ?? "⚙"}
             </button>
-            {showThemes && (
-              <div style={{ position: "absolute", right: 0, top: "100%", marginTop: "4px", background: S.card, border: "1px solid " + S.border, borderRadius: "10px", padding: "6px", zIndex: 100, boxShadow: "0 4px 12px rgba(0,0,0,0.15)", minWidth: "140px" }}>
-                {Object.entries(themes).map(([k, v]) => (
-                  <button key={k} onClick={() => { setTheme(k); setShowThemes(false); }} style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "8px 10px", borderRadius: "6px", border: "none", background: theme === k ? S.hl : "transparent", color: S.text, cursor: "pointer", fontSize: "13px", fontWeight: theme === k ? 700 : 400, textAlign: "left" }}>
-                    <span>{v.emoji}</span><span>{v.name}</span>
-                  </button>
-                ))}
-
+            {showSettings && (
+              <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: S.nav, border: "1px solid " + S.border, borderRadius: "12px", padding: "12px", zIndex: 100, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", width: "260px" }}>
+                {/* Theme */}
+                <div style={{ fontSize: "10px", color: S.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Theme</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
+                  {Object.entries(themes).map(([k, v]) => (
+                    <button key={k} onClick={() => setTheme(k)} style={{ display: "flex", alignItems: "center", gap: "5px", padding: "5px 10px", borderRadius: "16px", border: theme === k ? "2px solid " + S.accent : "1px solid " + S.border, background: theme === k ? S.hl : "transparent", color: theme === k ? S.accent : S.dim, cursor: "pointer", fontSize: "12px", fontWeight: theme === k ? 700 : 400 }}>
+                      <span>{v.emoji}</span><span>{v.name}</span>
+                    </button>
+                  ))}
+                </div>
+                {/* Plot & Refinery */}
+                <div style={{ height: "1px", background: S.border, margin: "0 0 12px" }} />
+                <div style={{ fontSize: "10px", color: S.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Plots & Refinery</div>
+                <PlotSettingsPanel S={S} plotOwned={plotOwned} setPlotOwned={setPlotOwned} refinerySize={refinerySize} setRefinerySize={setRefinerySize} onClose={() => {}} inline={true} />
+                {/* Upgrade Mode */}
+                <div style={{ height: "1px", background: S.border, margin: "12px 0" }} />
+                <div style={{ fontSize: "10px", color: S.dim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "8px" }}>Upgrade Mode</div>
+                <div style={{ display: "flex", borderRadius: "8px", overflow: "hidden", border: "1px solid " + S.border }}>
+                  {([{ val: "cascade", label: "Grind" }, { val: "afk", label: "AFK Planner" }] as const).map(opt => (
+                    <button key={opt.val} onClick={() => setUpgradeMode(opt.val)} style={{ flex: 1, padding: "7px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "none", background: upgradeMode === opt.val ? S.accent : S.card, color: upgradeMode === opt.val ? "#fff" : S.dim }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {upgradeMode === "afk" && (
+                  <div style={{ marginTop: "8px" }}>
+                    <div style={{ fontSize: "10px", color: S.dim, marginBottom: "4px" }}>AFK interval (hours)</div>
+                    <input type="number" value={afkHours} onChange={e => setAfkHours(e.target.value)} placeholder="e.g. 8" style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", fontSize: "12px", background: S.inputBg, border: "1px solid " + S.inputBorder, color: S.text, outline: "none", boxSizing: "border-box" as const }} />
+                  </div>
+                )}
+                {/* Reset */}
+                <div style={{ height: "1px", background: S.border, margin: "12px 0" }} />
+                <button onClick={() => { clearAllData(); }} style={{ width: "100%", padding: "8px", borderRadius: "8px", fontSize: "12px", fontWeight: 600, cursor: "pointer", border: "1px solid " + S.red, background: "transparent", color: S.red }}>
+                  Reset All Data
+                </button>
               </div>
             )}
           </div>
         </div>
         <div style={{ display: "flex", gap: "3px", padding: "8px 10px", overflowX: "auto", WebkitOverflowScrolling: "touch" as any, borderBottom: "1px solid " + S.border, background: S.nav }}>
           {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{ padding: "6px 9px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, fontStyle: "italic", cursor: "pointer", whiteSpace: "nowrap", border: "none", background: tab === t ? S.hl : "transparent", color: tab === t ? S.accent : S.dim }}>
-              {t}
+            <button key={t} onClick={() => { setTab(t); if (t === "Guide") setLastSeenVersion(LATEST_UPDATE.version); }} style={{ padding: "6px 9px", borderRadius: "6px", fontSize: "11px", fontWeight: 700, fontStyle: "italic", cursor: "pointer", whiteSpace: "nowrap", border: "none", background: tab === t ? S.hl : "transparent", color: tab === t ? S.accent : S.dim, position: "relative" }}>
+              {t}{t === "Guide" && lastSeenVersion !== LATEST_UPDATE.version && <span style={{ position: "absolute", top: "4px", right: "4px", width: "6px", height: "6px", borderRadius: "50%", background: S.red }} />}
             </button>
           ))}
         </div>
@@ -2061,6 +2287,8 @@ export default function Home() {
             upgPlot={upgPlot} setUpgPlot={setUpgPlot}
             sellRate={sellRate} production={production}
             boostMultiplier={boostMultiplier}
+            inventory={inventory} plotOwned={plotOwned} refinerySize={refinerySize}
+            upgradeMode={upgradeMode} afkHours={afkHours}
           />
         )}
         {tab === "Optimizer" && (
@@ -2072,10 +2300,11 @@ export default function Home() {
             inventory={inventory} invResult={invResult}
             production={production}
             refinerySize={refinerySize}
+            plotOwned={plotOwned}
           />
         )}
         {tab === "Guide" && (
-          <FormulasTab S={S} clearAllData={clearAllData} />
+          <FormulasTab S={S} clearAllData={clearAllData} changelogSeen={changelogSeen} setChangelogSeen={setChangelogSeen} />
         )}
       </div>
     </div>
