@@ -46,7 +46,18 @@ interface SmallMachine {
   base: number;
   size: string;
   tiles: number;
+  cost?: number;
 }
+
+const totems = [
+  { name: "Wooden",  boost: 5,   costGas: 200 },
+  { name: "Stone",   boost: 10,  costGas: 2500 },
+  { name: "Copper",  boost: 20,  costGas: 15000 },
+  { name: "Golden",  boost: 25,  costGas: 100000 },
+  { name: "Diamond", boost: 50,  costGas: 350000 },
+  { name: "Ruby",    boost: 75,  costGas: 1500000 },
+  { name: "Crystal", boost: 100, costGas: 50000000 },
+];
 
 const machines: { large: LargeMachine[]; small: SmallMachine[] } = {
   large: [
@@ -62,18 +73,18 @@ const machines: { large: LargeMachine[]; small: SmallMachine[] } = {
     { name: "Uranium Drill",     cost: 437.5e9, costLabel: "$437.5B", base: 12500 },
   ],
   small: [
-    { name: "Basic Drill",        base: 1,   size: "1×1", tiles: 1 },
-    { name: "Strong Drill",       base: 3,   size: "1×1", tiles: 1 },
-    { name: "Enhanced Drill",     base: 4,   size: "1×1", tiles: 1 },
-    { name: "Speed Drill",        base: 6,   size: "1×1", tiles: 1 },
-    { name: "Reinforced Drill",   base: 8,   size: "1×1", tiles: 1 },
-    { name: "Industrial Drill",   base: 10,  size: "1×1", tiles: 1 },
-    { name: "Double Industrial",  base: 12,  size: "2×1", tiles: 2 },
-    { name: "Turbo Drill",        base: 16,  size: "1×1", tiles: 1 },
-    { name: "Mega Drill",         base: 20,  size: "1×1", tiles: 1 },
-    { name: "Mega Emerald Drill", base: 25,  size: "1×1", tiles: 1 },
-    { name: "Hell Drill",         base: 35,  size: "1×1", tiles: 1 },
-    { name: "Plasma Drill",       base: 50,  size: "1×1", tiles: 1 },
+    { name: "Basic Drill",        base: 1,   size: "1×1", tiles: 1, cost: 500 },
+    { name: "Strong Drill",       base: 3,   size: "1×1", tiles: 1, cost: 1800 },
+    { name: "Enhanced Drill",     base: 4,   size: "1×1", tiles: 1, cost: 3600 },
+    { name: "Speed Drill",        base: 6,   size: "1×1", tiles: 1, cost: 7200 },
+    { name: "Reinforced Drill",   base: 8,   size: "1×1", tiles: 1, cost: 12000 },
+    { name: "Industrial Drill",   base: 10,  size: "1×1", tiles: 1, cost: 20000 },
+    { name: "Double Industrial",  base: 12,  size: "2×1", tiles: 2, cost: 30000 },
+    { name: "Turbo Drill",        base: 16,  size: "1×1", tiles: 1, cost: 80000 },
+    { name: "Mega Drill",         base: 20,  size: "1×1", tiles: 1, cost: 140000 },
+    { name: "Mega Emerald Drill", base: 25,  size: "1×1", tiles: 1, cost: 400000 },
+    { name: "Hell Drill",         base: 35,  size: "1×1", tiles: 1, cost: 1225000 },
+    { name: "Plasma Drill",       base: 50,  size: "1×1", tiles: 1, cost: 4500000 },
     { name: "Mini Ruby",          base: 67,  size: "1×1", tiles: 1 },
     { name: "Mini Diamond Drill", base: 100, size: "1×1", tiles: 1 },
     { name: "Mini Multi Drill",   base: 250, size: "2×1", tiles: 2 },
@@ -640,7 +651,7 @@ function CalcTab({
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <div>
           <div style={labelStyle}>Cash Boost (%)</div>
-          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="0" />
+          <input style={inputStyle} type="number" value={cashBoost} onChange={e => setCashBoost(e.target.value)} placeholder="100" />
         </div>
         <div>
           <div style={labelStyle}>Refinery Capacity</div>
@@ -1110,11 +1121,12 @@ interface UpgradeTabProps {
   upgTo: string; setUpgTo: (v: string) => void;
   upgPlot: PlotKey; setUpgPlot: (v: PlotKey) => void;
   sellRate: string; production: string; boostMultiplier: number;
+  cashBoost: string;
   inventory: InventoryState; plotOwned: PlotOwned; refinerySize: RefinerySize;
   upgradeMode: "cascade" | "afk"; afkHours: string;
 }
 
-function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPlot, sellRate, production, boostMultiplier, inventory, plotOwned, refinerySize, upgradeMode, afkHours }: UpgradeTabProps) {
+function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPlot, sellRate, production, boostMultiplier, cashBoost, inventory, plotOwned, refinerySize, upgradeMode, afkHours }: UpgradeTabProps) {
   const { inputStyle, labelStyle } = makeStyles(S);
   const upgToIdx = parseInt(upgTo);
   const upgEffectiveRate = (parseFloat(sellRate) || 0) * boostMultiplier;
@@ -1132,7 +1144,6 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
     const hasLower = (["1x","2x","3x","5x"] as PlotKey[]).some(pk =>
       Object.entries(inventory[pk]?.large ?? {}).some(([n, c]) =>
         (c as number) > 0 && (baseMap[n] ?? 0) < toDrill.base));
-    // Only surpassed if you have nothing below the goal (nothing to upgrade)
     if (countOfGoal === 0 && hasHigher && !hasLower) return { surpassed: true, toDrill };
 
     const plotDownOrder: PlotKey[] = ["5x","3x","2x","1x"];
@@ -1155,13 +1166,45 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
 
     const totalToUpgrade = ownedPlots.reduce((sum, pk) =>
       sum + (plotState[pk] ?? []).filter(d => d.base < toDrill.base).length, 0);
+
+    // Early game: no large drills yet
+    const hasAnyLarge = ownedPlots.some(pk => (plotState[pk] ?? []).length > 0);
+    if (!hasAnyLarge) {
+      const hugeLong = machines.large[0];
+      const smallDrills = machines.small.filter(m => m.cost != null && !PACK_EXCLUSIVE.includes(m.name)).sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0));
+      const smallSteps: { buyDrill: string; cost: number; prodAfter: number; timeS: number; cumulativeTime: number }[] = [];
+      let smallProd = upgProd;
+      let smallCumTime = 0;
+      const currentBestSmall = smallDrills.filter(m => {
+        const inv = Object.values(inventory).reduce((s: number, p) => s + ((p as any).small?.[m.name] ?? 0), 0);
+        return inv > 0;
+      }).sort((a, b) => b.base - a.base)[0];
+      let currentSmallBase = currentBestSmall?.base ?? 0;
+      for (let si = 0; si < 50; si++) {
+        const effRate = upgEffectiveRate > 0 ? upgEffectiveRate : (parseFloat(sellRate) || 15) * ((parseFloat(cashBoost) || 100) / 100);
+        const hugeAfford = effRate > 0 && smallProd > 0 ? hugeLong.cost / (smallProd * effRate) : Infinity;
+        if (hugeAfford <= 7 * 86400) break;
+        const nextSmall = smallDrills.find(m => m.base > currentSmallBase);
+        if (!nextSmall) break;
+        const timeS = effRate > 0 && smallProd > 0 ? (nextSmall.cost ?? 0) / (smallProd * effRate) : 0;
+        smallCumTime += timeS;
+        smallProd += nextSmall.base;
+        currentSmallBase = nextSmall.base;
+        smallSteps.push({ buyDrill: nextSmall.name, cost: nextSmall.cost ?? 0, prodAfter: Math.round(smallProd), timeS, cumulativeTime: smallCumTime });
+      }
+      const effRate = upgEffectiveRate > 0 ? upgEffectiveRate : (parseFloat(sellRate) || 15) * ((parseFloat(cashBoost) || 100) / 100);
+      return { earlyGame: true, toDrill, bestPlot, smallSteps, hugeAffordTime: smallProd > 0 && effRate > 0 ? hugeLong.cost / (smallProd * effRate) : Infinity };
+    }
+
     if (totalToUpgrade === 0) return { alreadyDone: true, toDrill, bestPlot };
 
-    const steps: { slotNum: number; buyDrill: string; sellDrill: string; sellValue: number; cascadePath: string; netCost: number; gasNeeded: number; timeS: number; prodAfter: number; cumulativeTime: number; }[] = [];
+    const steps: { slotNum: number; buyDrill: string; sellDrill: string; sellValue: number; cascadePath: string; netCost: number; gasNeeded: number; timeS: number; prodAfter: number; cumulativeTime: number }[] = [];
     let currentProd = upgProd;
     let cumulativeTime = 0;
+    let stepNum = 0;
 
-    for (let step = 0; step < totalToUpgrade; step++) {
+    while (stepNum < 500) {
+      stepNum++;
       let targetPlot = bestPlot;
       let weakest: { name: string; base: number; cost: number } | undefined;
       for (const pk of ownedPlots) {
@@ -1170,30 +1213,37 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
       }
       if (!weakest) break;
 
-      // Pick best drill: highest tier affordable within 7 days of grind
-      // If nothing affordable in 7 days, pick the one closest to 7 days
+      // Break-even drill selection capped at MAX_JUMP=1 tier
       let bestDrill = toDrill;
       if (upgEffectiveRate > 0 && currentProd > 0) {
-        const maxAffordSecs = 7 * 24 * 3600; // 7 day threshold
-        let bestAffordable: typeof toDrill | null = null;
-        let closestOver: typeof toDrill | null = null;
-        let closestOverTime = Infinity;
+        const candidates: typeof toDrill[] = [];
         for (const candidate of machines.large) {
           if (candidate.base <= weakest.base) continue;
           if (candidate.base > toDrill.base) break;
-          const sellBack = weakest.cost * 0.1;
-          const net = Math.max(0, candidate.cost - sellBack);
-          const affordSecs = net / (currentProd * upgEffectiveRate);
-          if (affordSecs <= maxAffordSecs) {
-            bestAffordable = candidate; // keep updating — we want the highest affordable
-          } else if (!closestOver || affordSecs < closestOverTime) {
-            closestOver = candidate;
-            closestOverTime = affordSecs;
+          candidates.push(candidate);
+        }
+        if (candidates.length > 0) {
+          const MAX_JUMP = 1;
+          const cap = candidates[Math.min(MAX_JUMP, candidates.length) - 1];
+          bestDrill = cap;
+          for (let ci = Math.min(MAX_JUMP, candidates.length) - 2; ci >= 0; ci--) {
+            const intermediate = candidates[ci];
+            const target = candidates[ci + 1];
+            const sellBackWeak = weakest.cost * 0.1;
+            const sellBackInt = intermediate.cost * 0.1;
+            const netInt = Math.max(0, intermediate.cost - sellBackWeak);
+            const timeInt = netInt / (currentProd * upgEffectiveRate);
+            const prodAfterInt = currentProd + (intermediate.base - weakest.base) * plotCfg[targetPlot].mult;
+            const netTargetVia = Math.max(0, target.cost - sellBackInt);
+            const timeTargetVia = netTargetVia / (prodAfterInt * upgEffectiveRate);
+            const totalVia = timeInt + timeTargetVia;
+            const netTargetDirect = Math.max(0, target.cost - sellBackWeak);
+            const timeTargetDirect = netTargetDirect / (currentProd * upgEffectiveRate);
+            if (totalVia < timeTargetDirect) { bestDrill = intermediate; break; }
           }
         }
-        // Pick highest affordable within 7 days, else pick the closest one over
-        bestDrill = bestAffordable ?? closestOver ?? toDrill;
       }
+
       plotState[targetPlot].shift();
       plotState[targetPlot].push({ name: bestDrill.name, base: bestDrill.base, cost: bestDrill.cost });
       plotState[targetPlot].sort((a, b) => a.base - b.base);
@@ -1229,21 +1279,19 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
 
       let newProd = 0;
       for (const pk of ownedPlots) {
-        // Large drills from cascade state
         for (const d of (plotState[pk] ?? [])) newProd += d.base * plotCfg[pk].mult;
-        // Small tiles don't change during cascade — add their contribution
         const smallMap = inventory[pk]?.small ?? {};
         for (const [name, count] of Object.entries(smallMap)) {
           newProd += (count as number) * (baseMap[name] ?? 0) * plotCfg[pk].mult;
         }
       }
       currentProd = newProd;
-
-      steps.push({ slotNum: step + 1, buyDrill: bestDrill.name, sellDrill: weakest.name, sellValue: finalSellValue, cascadePath: firstMove || "Empty slot", netCost, gasNeeded, timeS, prodAfter: Math.round(currentProd), cumulativeTime });
+      steps.push({ slotNum: stepNum, buyDrill: bestDrill.name, sellDrill: weakest.name, sellValue: finalSellValue, cascadePath: firstMove || "Empty slot", netCost, gasNeeded, timeS, prodAfter: Math.round(currentProd), cumulativeTime });
     }
 
     return { steps, totalTime: cumulativeTime, maxSlots: steps.length, toDrill, bestPlot, currentProd };
-  }, [upgToIdx, upgEffectiveRate, upgProd, inventory, plotOwned, refinerySize]);
+  }, [upgToIdx, upgEffectiveRate, upgProd, cashBoost, sellRate, inventory, plotOwned, refinerySize]);
+
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -1253,48 +1301,44 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
         <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
           {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
         </select>
-        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Based on your inventory</div>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Based on Calc tab & Inventory</div>
       </div>
+
       {upgradeMode === "afk" && (() => {
         const afkSecs = (parseFloat(afkHours) || 8) * 3600;
-        if (!cascadeResult || (cascadeResult as any).surpassed || (cascadeResult as any).alreadyDone) return null;
-        const steps: any[] = (cascadeResult as any).steps ?? [];
-        // Group steps into AFK sessions
+        if (!cascadeResult || (cascadeResult as any).surpassed || (cascadeResult as any).alreadyDone || (cascadeResult as any).earlyGame) return null;
+        const allSteps: any[] = (cascadeResult as any).steps ?? [];
         const sessions: { sessionNum: number; steps: any[]; endTime: number; endProd: number }[] = [];
-        let sessionStart = 0;
         let sessionSteps: any[] = [];
-        let prevTime = 0;
-        for (const step of steps) {
-          if (step.cumulativeTime - sessionStart > afkSecs && sessionSteps.length > 0) {
-            sessions.push({ sessionNum: sessions.length + 1, steps: sessionSteps, endTime: sessionStart + afkSecs, endProd: sessionSteps[sessionSteps.length - 1].prodAfter });
-            sessionStart += afkSecs;
-            sessionSteps = [];
-          }
+        let sessionStart = 0;
+        for (const step of allSteps) {
           sessionSteps.push(step);
+          if (step.cumulativeTime - sessionStart >= afkSecs) {
+            sessions.push({ sessionNum: sessions.length + 1, steps: sessionSteps, endTime: step.cumulativeTime, endProd: step.prodAfter });
+            sessionSteps = [];
+            sessionStart = step.cumulativeTime;
+          }
         }
         if (sessionSteps.length > 0) sessions.push({ sessionNum: sessions.length + 1, steps: sessionSteps, endTime: (cascadeResult as any).totalTime, endProd: sessionSteps[sessionSteps.length - 1].prodAfter });
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {(!upgProd || !upgEffectiveRate) && (
-              <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "8px", padding: "8px" }}>
-                ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "12px" }}>
+              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "4px", textTransform: "uppercase" }}>
+                Showing what to buy each {afkHours}h AFK session · {sessions.length} session{sessions.length !== 1 ? "s" : ""} total
               </div>
-            )}
-            <div style={{ fontSize: "11px", color: S.dim, textAlign: "center" }}>
-              Showing what to buy each {afkHours}h AFK session · {sessions.length} session{sessions.length !== 1 ? "s" : ""} total
             </div>
-            {sessions.map((session, si) => (
+            {sessions.map((sess, si) => (
               <div key={si} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
-                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: S.accent }}>Session {session.sessionNum}</span>
-                  <span style={{ fontSize: "11px", color: S.dim }}>{session.steps.length} upgrade{session.steps.length !== 1 ? "s" : ""} · {session.endProd.toLocaleString()}/s after</span>
+                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: S.accent }}>Session {sess.sessionNum}</span>
+                  <span style={{ fontSize: "11px", color: S.dim }}>{sess.steps.length} upgrade{sess.steps.length !== 1 ? "s" : ""} · {sess.endProd.toLocaleString()}/s after</span>
                 </div>
                 <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                  {session.steps.map((step: any, i: number) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", padding: "4px 0", borderBottom: i < session.steps.length - 1 ? "1px solid " + S.border : "none" }}>
+                  {sess.steps.map((step: any, i: number) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", padding: "3px 0", borderBottom: i < sess.steps.length - 1 ? "1px solid " + S.border : "none" }}>
                       <span style={{ color: S.text }}>Buy {step.buyDrill}</span>
                       <span style={{ color: S.dim, fontSize: "11px" }}>{step.cascadePath}</span>
-                      <span style={{ color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</span>
+                      <span style={{ color: S.accent }}>${formatNum(step.netCost)}</span>
                     </div>
                   ))}
                 </div>
@@ -1303,128 +1347,212 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
           </div>
         );
       })()}
-      {upgradeMode === "cascade" && (!cascadeResult ? null : (cascadeResult as any).surpassed ? (
-        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
-          You have surpassed {(cascadeResult as any).toDrill.name} — pick a higher goal drill.
-        </div>
-      ) : (cascadeResult as any).alreadyDone ? (
-        <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
-          All slots already have {(cascadeResult as any).toDrill.name} or better!
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {(!upgProd || !upgEffectiveRate) && (
-            <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "8px", padding: "8px" }}>
-              ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
+
+      {upgradeMode === "cascade" && (!cascadeResult ? null
+        : (cascadeResult as any).surpassed ? (
+          <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+            You have surpassed {(cascadeResult as any).toDrill.name} — pick a higher goal drill.
+          </div>
+        ) : (cascadeResult as any).alreadyDone ? (
+          <div style={{ background: S.hl, border: "1px solid " + S.border, borderRadius: "10px", padding: "16px", textAlign: "center", fontSize: "13px", color: S.dim }}>
+            All slots already have {(cascadeResult as any).toDrill.name} or better!
+          </div>
+        ) : (cascadeResult as any).earlyGame ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "6px", textTransform: "uppercase" }}>Early Game — Small Drills First</div>
+              <div style={{ fontSize: "12px", color: S.dim, marginBottom: "6px" }}>No large drills yet. Upgrade small drills until you can afford your first <strong style={{ color: S.text }}>Huge Long Drill</strong> (${formatNum(machines.large[0].cost)}).</div>
+              <div style={{ fontSize: "11px", color: S.blue }}>Huge Long affordable in ~{formatTime((cascadeResult as any).hugeAffordTime)}</div>
             </div>
-          )}
-          <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
-            <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" }}>
-              Grind Mode · {(cascadeResult as any).maxSlots} upgrade{(cascadeResult as any).maxSlots !== 1 ? "s" : ""} · across all plots
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Time</div>
-                <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime((cascadeResult as any).totalTime)}</div>
+            {(cascadeResult as any).smallSteps.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {(cascadeResult as any).smallSteps.map((step: any, i: number) => (
+                  <div key={i} style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+                    <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{i + 1}</span>
+                        <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {step.buyDrill}</span>
+                      </div>
+                      <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
+                    </div>
+                    <div style={{ padding: "8px 12px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "4px" }}>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "9px", color: S.dim }}>Cost</div>
+                        <div style={{ fontSize: "11px", color: S.accent, fontWeight: 600 }}>${formatNum(step.cost)}</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "9px", color: S.dim }}>Grind</div>
+                        <div style={{ fontSize: "11px", color: S.blue, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "9px", color: S.dim }}>Prod after</div>
+                        <div style={{ fontSize: "11px", color: S.green, fontWeight: 600 }}>{step.prodAfter.toLocaleString()}/s</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Cost</div>
-                <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum((cascadeResult as any).steps.reduce((s: number, st: any) => s + st.netCost, 0))}</div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {(!upgProd || !upgEffectiveRate) && (
+              <div style={{ fontSize: "11px", color: S.dim, textAlign: "center", background: S.hl, borderRadius: "8px", padding: "8px" }}>
+                ⚠ Enter Production &amp; Sell Rate in Calc tab for time estimates
               </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Upgrades</div>
-                <div style={{ fontSize: "14px", color: S.accent, fontWeight: 700 }}>{(cascadeResult as any).maxSlots}</div>
+            )}
+            <div style={{ background: S.hl, border: "2px solid " + S.accent, borderRadius: "12px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: S.accent, fontWeight: 700, marginBottom: "8px", textTransform: "uppercase" }}>
+                Grind Mode · {(cascadeResult as any).maxSlots} upgrade{(cascadeResult as any).maxSlots !== 1 ? "s" : ""} · across all plots
               </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Goal Prod</div>
-                <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>{Math.round((cascadeResult as any).currentProd).toLocaleString()}/s</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "8px" }}>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Time</div>
+                  <div style={{ fontSize: "14px", color: S.blue, fontWeight: 700 }}>{formatTime((cascadeResult as any).totalTime)}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Total Cost</div>
+                  <div style={{ fontSize: "14px", color: S.gold, fontWeight: 700 }}>${formatNum((cascadeResult as any).steps.reduce((s: number, st: any) => s + st.netCost, 0))}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Upgrades</div>
+                  <div style={{ fontSize: "14px", color: S.accent, fontWeight: 700 }}>{(cascadeResult as any).maxSlots}</div>
+                </div>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: "10px", color: S.dim, marginBottom: "2px" }}>Goal Prod</div>
+                  <div style={{ fontSize: "14px", color: S.green, fontWeight: 700 }}>{Math.round((cascadeResult as any).currentProd).toLocaleString()}/s</div>
+                </div>
+              </div>
+              <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid " + S.border, fontSize: "10px", color: S.dim, textAlign: "center" }}>
+                🚩🟢 Following flag suggestions reduces estimated total time
               </div>
             </div>
 
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {/* Roadmap */}
             {(() => {
-              const flaggedPlots = new Set<string>();
-              return (cascadeResult as any).steps.map((step: any, i: number) => {
-              // Plot check: find the best unowned plot where ROI beats next drill
-              let plotFlag: { plotKey: PlotKey; plotLabel: string; plotCost: number; plotSaveTime: number; plotROI: number; drillROI: number } | null = null;
-              if (upgEffectiveRate > 0 && step.prodAfter > 0) {
-                const plotCheckOrder: PlotKey[] = ["2x","3x","5x","1x"];
-                for (const pk of plotCheckOrder) {
-                  const owned = (plotOwned[pk] || []);
-                  const nextUnownedIdx = owned.findIndex((v: boolean) => !v);
-                  if (nextUnownedIdx === -1) continue;
-                  const plotCost = plotUnlockCostsNum[pk][nextUnownedIdx] ?? 0;
-                  if (plotCost === 0) continue;
-                  const plotSaveTime = plotCost / (step.prodAfter * upgEffectiveRate);
-                  const newSlots = plotCfg[pk].largePer;
-                  const extraProd = newSlots * (cascadeResult as any).toDrill.base * plotCfg[pk].mult;
-                  const plotROI = extraProd > 0 ? plotCost / (extraProd * upgEffectiveRate) : Infinity;
-                  const buyDrillObj = machines.large.find(m => m.name === step.buyDrill) ?? (cascadeResult as any).toDrill;
-                  const drillProdGain = buyDrillObj.base * plotCfg[(cascadeResult as any).bestPlot].mult;
-                  const drillCost = buyDrillObj.cost;
-                  const drillROI = drillProdGain > 0 ? drillCost / (drillProdGain * upgEffectiveRate) : Infinity;
-                  if (plotROI < drillROI && !flaggedPlots.has(pk)) {
-                    plotFlag = { plotKey: pk, plotLabel: plotUnlockCosts[pk][nextUnownedIdx]?.label ?? "", plotCost, plotSaveTime, plotROI, drillROI };
-                    flaggedPlots.add(pk);
-                    break;
-                  }
+              const allSteps: any[] = (cascadeResult as any).steps;
+              const roadmap: { drill: string; count: number; batchTime: number }[] = [];
+              for (const s of allSteps) {
+                const drillShort = s.buyDrill.replace(" Drill", "");
+                if (roadmap.length > 0 && roadmap[roadmap.length-1].drill === drillShort) {
+                  roadmap[roadmap.length-1].count++;
+                  roadmap[roadmap.length-1].batchTime += s.timeS;
+                } else {
+                  roadmap.push({ drill: drillShort, count: 1, batchTime: s.timeS });
                 }
               }
+              const drillOrder = ["Huge Long","Mega Plasma","Multi","Lava","Ice Plasma","Crystal","Diamond","Ruby","Fusion","Uranium"];
               return (
-              <React.Fragment key={i}>
-              <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
-                <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{step.slotNum}</span>
-                    <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {step.buyDrill}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    {plotFlag && (
-                      <button onClick={() => { const el = document.getElementById("plotflag-" + i); if (el) el.style.display = el.style.display === "none" ? "block" : "none"; }} style={{ fontSize: "12px", background: "transparent", border: "none", cursor: "pointer", padding: "0" }} title="Plot purchase suggestion">🚩</button>
-                    )}
-                    <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
-                  </div>
-                </div>
-                {plotFlag && (
-                  <div id={"plotflag-" + i} style={{ display: "none", background: "rgba(255,213,80,0.08)", borderBottom: "1px solid " + S.border, padding: "8px 12px" }}>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: S.gold, marginBottom: "2px" }}>
-                      Consider buying {plotFlag.plotKey} {plotFlag.plotLabel} ({formatNum(plotFlag.plotCost) }) here
-                    </div>
-                    <div style={{ fontSize: "10px", color: S.dim }}>
-                      Plot ROI {formatTime(plotFlag.plotROI)} vs next drill ROI {formatTime(plotFlag.drillROI)}
-                    </div>
-                  </div>
-                )}
-                <div style={{ padding: "8px 12px" }}>
-                  <div style={{ fontSize: "11px", color: S.dim, marginBottom: "6px" }}>↓ {step.cascadePath}</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "4px" }}>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "9px", color: S.dim }}>Sell back</div>
-                      <div style={{ fontSize: "11px", color: step.sellValue > 0 ? S.green : S.dim, fontWeight: 600 }}>{step.sellValue > 0 ? "$" + formatNum(step.sellValue) : "—"}</div>
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "9px", color: S.dim }}>Net cost</div>
-                      <div style={{ fontSize: "11px", color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</div>
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "9px", color: S.dim }}>Grind</div>
-                      <div style={{ fontSize: "11px", color: S.blue, fontWeight: 600 }}>{formatTime(step.timeS)}</div>
-                    </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ fontSize: "9px", color: S.dim }}>Prod after</div>
-                      <div style={{ fontSize: "11px", color: S.green, fontWeight: 600 }}>{step.prodAfter.toLocaleString()}/s</div>
-                    </div>
+                <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" as any, paddingBottom: "4px" }}>
+                  <div style={{ display: "flex", alignItems: "center", minWidth: "max-content", padding: "2px 0" }}>
+                    {roadmap.map((r, ri) => {
+                      const prevTier = ri > 0 ? drillOrder.indexOf(roadmap[ri-1].drill) : -1;
+                      const thisTier = drillOrder.indexOf(r.drill);
+                      const isPlotTransition = ri > 0 && thisTier < prevTier;
+                      return (
+                        <div key={ri} style={{ display: "flex", alignItems: "center" }}>
+                          {ri > 0 && (
+                            <div style={{ fontSize: "12px", color: isPlotTransition ? S.accent : S.dim, padding: "0 4px", flexShrink: 0 }}>{isPlotTransition ? "↩" : "→"}</div>
+                          )}
+                          <div style={{ textAlign: "center", padding: "6px 10px", background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", minWidth: "64px" }}>
+                            <div style={{ fontSize: "11px", fontWeight: 700, color: S.accent }}>{r.count > 1 ? r.count + "× " : ""}{r.drill}</div>
+                            <div style={{ fontSize: "10px", color: S.dim, marginTop: "1px" }}>{formatTime(r.batchTime)}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-              </React.Fragment>
               );
-            });
-          })()}
+            })()}
+            {/* Steps */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {(() => {
+                const flaggedPlots = new Set<string>();
+                const flaggedTotems = new Set<string>();
+                const allSteps: any[] = (cascadeResult as any).steps;
+                return allSteps.map((step: any, bi: number) => {
+                  // Totem flag
+                  const currentBoostPct = parseFloat(cashBoost) || 0;
+                  let cumulativeBoost = 0;
+                  const nextTotem = totems.find(t => { cumulativeBoost += t.boost; return cumulativeBoost > (currentBoostPct - 100); });
+                  let totemFlag: { name: string; costGas: number; boostGain: number; totemROI: number; drillROI: number } | null = null;
+                  if (nextTotem && upgEffectiveRate > 0 && step.prodAfter > 0 && !flaggedTotems.has(nextTotem.name)) {
+                    const totemCostDollars = nextTotem.costGas * (parseFloat(sellRate) || 0);
+                    const newBoostMult = (currentBoostPct + nextTotem.boost) / 100;
+                    const currBoostMult = currentBoostPct / 100;
+                    const rateGain = (newBoostMult - currBoostMult) * (parseFloat(sellRate) || 0);
+                    const totemROI = rateGain > 0 ? totemCostDollars / (step.prodAfter * rateGain) : Infinity;
+                    const drillNetCost = step.netCost ?? (cascadeResult as any).toDrill.cost;
+                    const drillProdGainT = (cascadeResult as any).toDrill.base * plotCfg[(cascadeResult as any).bestPlot].mult;
+                    const drillROIT = drillProdGainT > 0 ? drillNetCost / (drillProdGainT * upgEffectiveRate) : Infinity;
+                    if (totemROI < drillROIT && totemCostDollars > 0) {
+                      totemFlag = { name: nextTotem.name, costGas: nextTotem.costGas, boostGain: nextTotem.boost, totemROI, drillROI: drillROIT };
+                      flaggedTotems.add(nextTotem.name);
+                    }
+                  }
+                  // Plot flag
+                  let plotFlag: { plotKey: PlotKey; plotLabel: string; plotCost: number; plotROI: number; drillROI: number } | null = null;
+                  if (upgEffectiveRate > 0 && step.prodAfter > 0) {
+                    // Prioritise plots you already partially own, then by cost
+                    const plotCheckOrder: PlotKey[] = (["1x","2x","3x","5x"] as PlotKey[]).filter(pk => {
+                      const owned = (plotOwned[pk] || []);
+                      return owned.some(Boolean) && owned.some((v: boolean) => !v);
+                    }).concat(
+                      (["2x","3x","5x"] as PlotKey[]).filter(pk => !(plotOwned[pk] || []).some(Boolean))
+                    );
+                    for (const pk of plotCheckOrder) {
+                      const owned = (plotOwned[pk] || []);
+                      const nextUnownedIdx = owned.findIndex((v: boolean) => !v);
+                      if (nextUnownedIdx === -1) continue;
+                      const plotCost = plotUnlockCostsNum[pk][nextUnownedIdx] ?? 0;
+                      if (plotCost === 0) continue;
+                      const newSlots = plotCfg[pk].largePer;
+                      const extraProd = newSlots * (cascadeResult as any).toDrill.base * plotCfg[pk].mult;
+                      const plotROI = extraProd > 0 ? plotCost / (extraProd * upgEffectiveRate) : Infinity;
+                      const buyDrillObj = machines.large.find(m => m.name === step.buyDrill) ?? (cascadeResult as any).toDrill;
+                      const drillROI = buyDrillObj.base > 0 ? buyDrillObj.cost / (buyDrillObj.base * plotCfg[(cascadeResult as any).bestPlot].mult * upgEffectiveRate) : Infinity;
+                      if (plotROI < drillROI && !flaggedPlots.has(pk + nextUnownedIdx)) {
+                        plotFlag = { plotKey: pk, plotLabel: plotUnlockCosts[pk][nextUnownedIdx]?.label ?? "", plotCost, plotROI, drillROI };
+                        flaggedPlots.add(pk + nextUnownedIdx);
+                      }
+                      break;
+                    }
+                  }
+                  return (
+                    <React.Fragment key={bi}>
+                      <div style={{ background: S.card, border: "1px solid " + S.border, borderRadius: "10px", overflow: "hidden" }}>
+                        <div style={{ background: S.hl, padding: "8px 12px", borderBottom: "1px solid " + S.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <span style={{ background: S.accent, color: "#fff", borderRadius: "50%", width: "20px", height: "20px", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 800, flexShrink: 0 }}>{step.slotNum}</span>
+                            <span style={{ fontSize: "12px", color: S.text, fontWeight: 600 }}>Buy {step.buyDrill}</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            {totemFlag && <button onClick={() => { const el = document.getElementById("tf-"+bi); if(el) el.style.display = el.style.display==="none"?"block":"none"; }} style={{ fontSize: "13px", background: "transparent", border: "none", cursor: "pointer", padding: "0" }}>🟢</button>}
+                            {plotFlag && <button onClick={() => { const el = document.getElementById("pf-"+bi); if(el) el.style.display = el.style.display==="none"?"block":"none"; }} style={{ fontSize: "13px", background: "transparent", border: "none", cursor: "pointer", padding: "0" }}>🚩</button>}
+                            <span style={{ fontSize: "11px", color: S.dim }}>{formatTime(step.cumulativeTime)} total</span>
+                          </div>
+                        </div>
+                        {totemFlag && <div id={"tf-"+bi} style={{ display: "none", background: "rgba(52,211,153,0.08)", borderBottom: "1px solid "+S.border, padding: "8px 12px" }}><div style={{ fontSize: "11px", fontWeight: 700, color: S.green, marginBottom: "2px" }}>Consider upgrading to {totemFlag.name} Totem (+{totemFlag.boostGain}% boost, {totemFlag.costGas.toLocaleString()} gas)</div><div style={{ fontSize: "10px", color: S.dim }}>Totem ROI {formatTime(totemFlag.totemROI)} vs drill ROI {formatTime(totemFlag.drillROI)}</div></div>}
+                        {plotFlag && <div id={"pf-"+bi} style={{ display: "none", background: "rgba(255,213,80,0.08)", borderBottom: "1px solid "+S.border, padding: "8px 12px" }}><div style={{ fontSize: "11px", fontWeight: 700, color: S.gold, marginBottom: "2px" }}>Consider buying {plotFlag.plotKey} {plotFlag.plotLabel} (${formatNum(plotFlag.plotCost)}) here</div><div style={{ fontSize: "10px", color: S.dim }}>Plot ROI {formatTime(plotFlag.plotROI)} vs drill ROI {formatTime(plotFlag.drillROI)}</div></div>}
+                        <div style={{ padding: "8px 12px" }}>
+                          <div style={{ fontSize: "11px", color: S.dim, marginBottom: "6px" }}>↓ {step.cascadePath}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "4px" }}>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: "9px", color: S.dim }}>Sell back</div><div style={{ fontSize: "11px", color: step.sellValue > 0 ? S.green : S.dim, fontWeight: 600 }}>{step.sellValue > 0 ? "$"+formatNum(step.sellValue) : "—"}</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: "9px", color: S.dim }}>Net cost</div><div style={{ fontSize: "11px", color: S.accent, fontWeight: 600 }}>${formatNum(step.netCost)}</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: "9px", color: S.dim }}>Grind</div><div style={{ fontSize: "11px", color: S.blue, fontWeight: 600 }}>{formatTime(step.timeS)}</div></div>
+                            <div style={{ textAlign: "center" }}><div style={{ fontSize: "9px", color: S.dim }}>Prod after</div><div style={{ fontSize: "11px", color: S.green, fontWeight: 600 }}>{step.prodAfter.toLocaleString()}/s</div></div>
+                          </div>
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  );
+                });
+              })()}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      )}
     </div>
   );
 }
@@ -2117,7 +2245,7 @@ export default function Home() {
   const [gasUnit, setGasUnit]           = useSaved<"B" | "M">("gasUnit", "B");
   const [sellRate, setSellRate]         = useSaved<string>("rate", "");
   const [target, setTarget]             = useSaved<string>("tgt", "diamond");
-  const [cashBoost, setCashBoost]       = useSaved<string>("boost", "0");
+  const [cashBoost, setCashBoost]       = useSaved<string>("boost", "100");
   const [refCap, setRefCap]             = useSaved<number>("refCap", 1000000);
   const [compFrom, setCompFrom]         = useSaved<string>("c1", "0");
   const [compTo, setCompTo]             = useSaved<string>("c2", String(machines.large.length - 1));
@@ -2400,6 +2528,7 @@ export default function Home() {
             upgPlot={upgPlot} setUpgPlot={setUpgPlot}
             sellRate={sellRate} production={production}
             boostMultiplier={boostMultiplier}
+            cashBoost={cashBoost}
             inventory={inventory} plotOwned={plotOwned} refinerySize={refinerySize}
             upgradeMode={upgradeMode} afkHours={afkHours}
           />
