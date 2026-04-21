@@ -1213,7 +1213,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
       }
       if (!weakest) break;
 
-      // Break-even drill selection capped at MAX_JUMP=1 tier
+      // Full-path lookahead: simulate entire remaining path for each candidate, pick lowest total time
       let bestDrill = toDrill;
       if (upgEffectiveRate > 0 && currentProd > 0) {
         const candidates: typeof toDrill[] = [];
@@ -1222,24 +1222,59 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
           if (candidate.base > toDrill.base) break;
           candidates.push(candidate);
         }
-        if (candidates.length > 0) {
-          const MAX_JUMP = 1;
-          const cap = candidates[Math.min(MAX_JUMP, candidates.length) - 1];
-          bestDrill = cap;
-          for (let ci = Math.min(MAX_JUMP, candidates.length) - 2; ci >= 0; ci--) {
-            const intermediate = candidates[ci];
-            const target = candidates[ci + 1];
-            const sellBackWeak = weakest.cost * 0.1;
-            const sellBackInt = intermediate.cost * 0.1;
-            const netInt = Math.max(0, intermediate.cost - sellBackWeak);
-            const timeInt = netInt / (currentProd * upgEffectiveRate);
-            const prodAfterInt = currentProd + (intermediate.base - weakest.base) * plotCfg[targetPlot].mult;
-            const netTargetVia = Math.max(0, target.cost - sellBackInt);
-            const timeTargetVia = netTargetVia / (prodAfterInt * upgEffectiveRate);
-            const totalVia = timeInt + timeTargetVia;
-            const netTargetDirect = Math.max(0, target.cost - sellBackWeak);
-            const timeTargetDirect = netTargetDirect / (currentProd * upgEffectiveRate);
-            if (totalVia < timeTargetDirect) { bestDrill = intermediate; break; }
+        candidates.push(toDrill);
+
+        if (candidates.length > 1) {
+          const simulatePath = (
+            startDrill: typeof toDrill,
+            simPlotState: Record<string, { name: string; base: number; cost: number }[]>,
+            simProd: number
+          ): number => {
+            const ps: Record<string, { name: string; base: number; cost: number }[]> = {};
+            for (const pk of ownedPlots) ps[pk] = (simPlotState[pk] ?? []).map(d => ({ ...d }));
+            let prod = simProd;
+            let totalT = 0;
+
+            const applyStep = (drill: typeof toDrill, tPlot: string, weak: { name: string; base: number; cost: number }) => {
+              ps[tPlot].shift();
+              ps[tPlot].push({ name: drill.name, base: drill.base, cost: drill.cost });
+              ps[tPlot].sort((a, b) => a.base - b.base);
+              let displaced: { name: string; base: number; cost: number } | null = weak;
+              let sellVal = 0;
+              for (let pi = ownedPlots.indexOf(tPlot) + 1; pi < ownedPlots.length && displaced; pi++) {
+                const tp = ownedPlots[pi];
+                const ts = ps[tp] ?? [];
+                const oc = (plotOwned[tp] || []).filter(Boolean).length;
+                const mx = oc * plotCfg[tp].largePer - (tp === "1x" && refinerySize === "2x2" ? 1 : 0);
+                if (ts.length < mx) { ts.push(displaced); ts.sort((a, b) => a.base - b.base); displaced = null; }
+                else { const wh = ts[0]!; ts.shift(); ts.push(displaced); ts.sort((a, b) => a.base - b.base); displaced = wh; }
+              }
+              if (displaced) sellVal = displaced.cost * 0.1;
+              const net = Math.max(0, drill.cost - sellVal);
+              totalT += prod > 0 ? (upgEffectiveRate > 0 ? net / upgEffectiveRate : 0) / prod : 0;
+              let np = 0;
+              for (const pk of ownedPlots) {
+                for (const d of (ps[pk] ?? [])) np += d.base * plotCfg[pk].mult;
+                const sm = inventory[pk]?.small ?? {};
+                for (const [nm, cnt] of Object.entries(sm)) np += (cnt as number) * (baseMap[nm] ?? 0) * plotCfg[pk].mult;
+              }
+              prod = np;
+            };
+
+            applyStep(startDrill, targetPlot, weakest!);
+            for (let s2 = 0; s2 < 400; s2++) {
+              let tp2 = ownedPlots[0]; let wk2: { name: string; base: number; cost: number } | undefined;
+              for (const pk of ownedPlots) { const w2 = ps[pk]?.[0]; if (w2 && w2.base < toDrill.base) { tp2 = pk; wk2 = w2; break; } }
+              if (!wk2) break;
+              applyStep(toDrill, tp2, wk2);
+            }
+            return totalT;
+          };
+
+          let bestTime = Infinity;
+          for (const candidate of candidates) {
+            const t = simulatePath(candidate, plotState, currentProd);
+            if (t < bestTime) { bestTime = t; bestDrill = candidate; }
           }
         }
       }
@@ -1301,7 +1336,7 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
         <select value={upgTo} onChange={e => setUpgTo(e.target.value)} style={{ ...inputStyle, cursor: "pointer", height: "42px" }}>
           {machines.large.map((m, i) => <option key={i} value={i}>{m.name}</option>)}
         </select>
-        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Based on Calc tab & Inventory</div>
+        <div style={{ fontSize: "10px", color: S.dim, marginTop: "4px" }}>Based on Calc tab &amp; Inventory</div>
       </div>
 
       {upgradeMode === "afk" && (() => {
@@ -1448,11 +1483,11 @@ function UpgradeTab({ S, upgFrom, setUpgFrom, upgTo, setUpgTo, upgPlot, setUpgPl
                     {roadmap.map((r, ri) => {
                       const prevTier = ri > 0 ? drillOrder.indexOf(roadmap[ri-1].drill) : -1;
                       const thisTier = drillOrder.indexOf(r.drill);
-                      const isPlotTransition = ri > 0 && thisTier < prevTier;
+                      const isUpgrade = ri > 0 && thisTier > prevTier;
                       return (
                         <div key={ri} style={{ display: "flex", alignItems: "center" }}>
                           {ri > 0 && (
-                            <div style={{ fontSize: "12px", color: isPlotTransition ? S.accent : S.dim, padding: "0 4px", flexShrink: 0 }}>{isPlotTransition ? "↩" : "→"}</div>
+                            <div style={{ fontSize: "12px", color: isUpgrade ? S.green : S.dim, padding: "0 4px", flexShrink: 0 }}>→</div>
                           )}
                           <div style={{ textAlign: "center", padding: "6px 10px", background: S.hl, border: "1px solid " + S.border, borderRadius: "8px", minWidth: "64px" }}>
                             <div style={{ fontSize: "11px", fontWeight: 700, color: S.accent }}>{r.count > 1 ? r.count + "× " : ""}{r.drill}</div>
@@ -2025,7 +2060,7 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
   const [step, setStep] = useState(0);
   const [prod, setProd] = useState("");
   const [rate, setRate] = useState("15");
-  const [boost, setBoost] = useState("0");
+  const [boost, setBoost] = useState("100");
   const [owned, setOwned] = useState<PlotOwned>(makeDefaultPlotOwned());
   const [refSize, setRefSize] = useState<RefinerySize>("none");
   const [selectedTheme, setSelectedTheme] = useState("white");
@@ -2098,7 +2133,7 @@ function WelcomeFlow({ S: _S, onComplete }: WelcomeFlowProps) {
                 </div>
                 <div>
                   <div style={{ fontSize: "11px", color: S.dim, textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: "4px" }}>Cash Boost (%)</div>
-                  <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="0" />
+                  <input style={inputStyle} type="number" value={boost} onChange={e => setBoost(e.target.value)} placeholder="100" />
                 </div>
               </div>
             </div>
